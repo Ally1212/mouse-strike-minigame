@@ -109,8 +109,7 @@ export class GameApp {
         const progress = contains(layout.fighterProgress, point.x, point.y);
         const role = this.state.modal ? "modal"
           : preview ? `preview:${preview.id}`
-            : contains(layout.rules, point.x, point.y) ? "rules"
-              : contains(layout.sound, point.x, point.y) ? "sound"
+            : contains(layout.sound, point.x, point.y) ? "sound"
                 : contains(layout.map, point.x, point.y) ? "map"
                   : contains(layout.start, point.x, point.y) ? "start"
                     : contains(layout.fighterPrev, point.x, point.y) ? "fighter-prev"
@@ -256,10 +255,6 @@ export class GameApp {
       if (this.state.hangar.guideStage === 1) this.advanceHangarGuide(2);
       this.audio.play("uiConfirm");
       if (this.state.settings.haptics) this.runtime.vibrate("short");
-      return;
-    }
-    if (touch.role === "rules" && !touch.moved) {
-      this.openRules();
       return;
     }
     if (touch.role === "sound" && !touch.moved) {

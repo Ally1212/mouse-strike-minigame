@@ -3,7 +3,7 @@
   "compileType": "game",
   "miniprogramRoot": "dist/",
   "projectname": "mouse-strike-minigame",
-  "description": "鼠标突击队微信小游戏迁移版",
+  "description": "手指突击队微信小游戏版",
   "setting": {
     "es6": true,
     "enhance": true,

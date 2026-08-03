@@ -10,7 +10,7 @@ describe("touch layout", () => {
   test("keeps all actionable controls at least 44 logical pixels", () => {
     const safeArea = { left: 0, top: 32, right: 375, bottom: 778 };
     const hangar = computeHangarLayout(375, 812, safeArea);
-    [hangar.rules, hangar.sound, hangar.map, hangar.start, hangar.fighterPrev, hangar.fighterNext, hangar.fighterProgress, ...hangar.previewButtons, ...hangar.fighterCards].forEach(expectTouchable);
+    [hangar.sound, hangar.map, hangar.start, hangar.fighterPrev, hangar.fighterNext, hangar.fighterProgress, ...hangar.previewButtons, ...hangar.fighterCards].forEach(expectTouchable);
     expect(hangar.fighterCards).toHaveLength(3);
     expect(hangar.fighterCards[0].x).toBeGreaterThanOrEqual(hangar.pad);
     expect(hangar.fighterCards[2].x + hangar.fighterCards[2].width).toBeLessThanOrEqual(375 - hangar.pad);

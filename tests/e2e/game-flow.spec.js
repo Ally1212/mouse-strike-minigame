@@ -53,7 +53,8 @@ test("默认机库、中文文字和地图选择可用", async ({ page }) => {
   expect(initial.mapId).toBe("usa");
   expect(initial.qaEnabled).toBe(true);
   expect(initial.camera).toEqual({ top: 812, bottom: 0 });
-  expect(initial.labels).toEqual(expect.arrayContaining(["鼠标突击队", "歼-20 威龙", "驾驶出击"]));
+  expect(initial.labels).toEqual(expect.arrayContaining(["歼-20 威龙", "驾驶出击"]));
+  expect(initial.labels).not.toContain("鼠标突击队");
   expect(initial.texturesMatch).toBe(true);
 
   const hangar = await getLayout(page, "hangar");

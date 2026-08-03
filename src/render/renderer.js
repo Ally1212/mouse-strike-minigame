@@ -204,10 +204,7 @@ export class GameRenderer {
     const fighter = FIGHTERS[state.fighterId];
     const layer = this.uiLayer;
     layer.begin();
-    layer.text("鼠标突击队", { x: layout.header.x, y: layout.header.y + 1, width: 148, height: 25, color: COLORS.ink, fontSize: 17, weight: 900 });
-    layer.text(`空战机库  ${String(FIGHTER_ORDER.indexOf(state.fighterId) + 1).padStart(2, "0")} / ${String(FIGHTER_ORDER.length).padStart(2, "0")}  ·  左右滑动换机`, { x: layout.header.x, y: layout.header.y + 25, width: 230, height: 17, color: COLORS.blue, fontSize: 9, weight: 800 });
     this.button(layer, layout.sound, "设置", false, "surface", 24, state.uiPress === "sound");
-    this.button(layer, layout.rules, "玩法", false, "surface", 24, state.uiPress === "rules");
 
     const radarX = this.width / 2;
     const radarY = layout.preview.y + layout.preview.height * 0.45;

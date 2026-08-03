@@ -11,14 +11,12 @@ export function computeHangarLayout(width, height, safeArea = {}, menuButton = n
   const cardsHeight = 56;
   const infoHeight = Math.max(94, Math.min(112, height * 0.14));
   const headerY = Math.max(safeTop + 4, Number.isFinite(menuButton?.top) ? menuButton.top : 0);
-  const headerRight = Number.isFinite(menuButton?.left) ? menuButton.left - 8 : width - pad;
   const footerY = height - safeBottom - footerHeight - 10;
   const cardsY = footerY - cardsHeight - 8;
   const infoY = cardsY - infoHeight - 8;
   const previewY = headerY + headerHeight + 8;
   const previewHeight = Math.max(180, infoY - previewY - 8);
-  const rules = { x: headerRight - 50, y: headerY, width: 50, height: 44, id: "rules" };
-  const sound = { x: rules.x - 58, y: headerY, width: 50, height: 44, id: "sound" };
+  const sound = { x: pad, y: headerY, width: 50, height: 44, id: "sound" };
   const previewButtons = ["flight", "transform", "assault", "tactical"].map((id, index) => ({
     id,
     x: pad + index * ((width - pad * 2) / 4),
@@ -61,7 +59,7 @@ export function computeHangarLayout(width, height, safeArea = {}, menuButton = n
   const mapWidth = Math.max(108, Math.min(142, width * 0.34));
   return {
     pad,
-    header: { x: pad, y: headerY, width: Math.max(120, headerRight - pad), height: headerHeight },
+    header: { x: pad, y: headerY, width: 50, height: headerHeight },
     preview: { x: 0, y: previewY, width, height: previewHeight },
     info: { x: pad, y: infoY, width: width - pad * 2, height: infoHeight },
     cards: { x: 0, y: cardsY, width, height: cardsHeight },
@@ -70,7 +68,6 @@ export function computeHangarLayout(width, height, safeArea = {}, menuButton = n
     fighterNext,
     fighterProgress,
     previewButtons,
-    rules,
     sound,
     footer: { x: pad, y: footerY, width: width - pad * 2, height: footerHeight },
     map: { id: "map", x: pad, y: footerY + 6, width: mapWidth, height: 50 },
