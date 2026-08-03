@@ -1,0 +1,25 @@
+{
+  "name": "mouse-strike-minigame",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --watch",
+    "preview": "vite --host 127.0.0.1 --config tools/preview/vite.config.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:endurance": "node --expose-gc scripts/endurance.mjs",
+    "check": "npm test && npm run test:e2e && npm run test:endurance && npm run build && node scripts/acceptance.mjs"
+  },
+  "dependencies": {
+    "three": "0.185.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.0",
+    "esbuild": "0.28.1",
+    "vite": "8.1.5",
+    "vitest": "3.2.4"
+  }
+}

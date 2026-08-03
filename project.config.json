@@ -1,0 +1,41 @@
+{
+  "appid": "wxd30f4d10cc98ff4e",
+  "compileType": "game",
+  "miniprogramRoot": "dist/",
+  "projectname": "mouse-strike-minigame",
+  "description": "鼠标突击队微信小游戏迁移版",
+  "setting": {
+    "es6": true,
+    "enhance": true,
+    "postcss": false,
+    "minified": true,
+    "compileHotReLoad": true,
+    "useStaticServer": true,
+    "useCompilerPlugins": false,
+    "minifyWXSS": false,
+    "minifyWXML": true,
+    "showShadowRootInWxmlPanel": false,
+    "packNpmManually": false,
+    "ignoreUploadUnusedFiles": true,
+    "compileWorklet": false,
+    "uglifyFileName": false,
+    "uploadWithSourceMap": true,
+    "packNpmRelationList": [],
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "condition": false,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
+  },
+  "condition": {},
+  "simulatorPluginLibVersion": {},
+  "packOptions": {
+    "ignore": [],
+    "include": []
+  },
+  "isGameTourist": false,
+  "editorSetting": {}
+}
