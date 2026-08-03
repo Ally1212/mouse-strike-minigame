@@ -257,7 +257,7 @@ export class GameApp {
       const previewId = touch.role.slice(8);
       this.state.hangar.previewMode = previewId;
       if (this.state.hangar.guideStage === 1) this.advanceHangarGuide(2);
-      this.audio.play("uiConfirm");
+      this.audio.play(previewId === "transform" ? "transform" : "uiConfirm");
       if (this.state.settings.haptics) this.runtime.vibrate("short");
       return;
     }

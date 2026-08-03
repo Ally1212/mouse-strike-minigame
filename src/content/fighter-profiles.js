@@ -22,10 +22,10 @@ export const FIGHTERS = {
     tradeoff: "驾驶前需验证概念暗号；强袭仍需收集 3 个能量球",
     special: "天穹核裁决：投射超维核弹，清空敌弹并秒杀普通敌机；强袭激光形态下升级为全屏裁决光阵。",
     transformation: {
-      name: "HYPERION X-10",
-      label: "超维天神形态",
-      stages: ["极速破界", "棱镜猎杀", "泰坦重装", "光子天神"],
-      summary: "机鼻分裂为光矛核心，主翼依次转为高速刃、棱镜环、重装肩甲和光子冠，10 秒内完成四阶段强袭演化。",
+      name: "TRIDENT X-10",
+      label: "三叉炽翼形态",
+      stages: ["极速锁定", "翼轨收束", "三擎合流", "贯星释放"],
+      summary: "机鼻与座舱锁成白色菱形头胸，双翼向高速轴收束，三台发动机组成一体式三叉推进尾，10 秒内逐级提升贯星火力。",
     },
     accent: "#25c8ff",
     secondary: "#ffd35a",
@@ -63,7 +63,7 @@ export const FIGHTERS = {
     shape: { ...sharedShape, nose: 43, body: 35, wing: 47, wingY: -2, rearWingY: 21, tail: 12, canard: 15, tailless: false },
     rig: {
       profile: "hypersonic",
-      assaultForm: "hyperion-x10",
+      assaultForm: "trident-seraph",
       engineCount: 3,
       wingSweep: 0.78,
       wingTaper: 0.92,

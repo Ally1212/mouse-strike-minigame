@@ -84,6 +84,9 @@ export class GameRenderer {
     const rim = new THREE.DirectionalLight(0x86dfff, 1.5);
     rim.position.set(80, 90, -140);
     this.hangarScene.add(rim);
+    this.transformLight = new THREE.PointLight(0x39cdf3, 0, 260, 1.7);
+    this.transformLight.position.set(0, 52, 78);
+    this.hangarScene.add(this.transformLight);
     const pad = new THREE.Mesh(
       new THREE.CircleGeometry(118, 64),
       new THREE.MeshStandardMaterial({ color: 0x0b2432, metalness: 0.66, roughness: 0.58 }),
@@ -154,6 +157,7 @@ export class GameRenderer {
     const accent = new THREE.Color(FIGHTERS[fighterId].accent);
     this.hangarTargetTheme.copy(accent).multiplyScalar(0.12).add(new THREE.Color(0x04121d));
     this.hangarOuterRing.material.color.copy(accent);
+    this.transformLight.color.copy(accent);
   }
 
   render(state, delta = 0) {
@@ -165,7 +169,7 @@ export class GameRenderer {
 
   renderHangar(state) {
     this.setFighter(state.fighterId);
-    updateFighterModel(this.currentModel, state.hangar.previewMode, this.time, state.hangar.modelRotation);
+    updateFighterModel(this.currentModel, state.hangar.previewMode, this.time, state.hangar.modelRotation, state.settings.reducedMotion, this.quality === "low");
     const layout = computeHangarLayout(this.width, this.height, this.runtime.viewport.safeArea, this.runtime.viewport.menuButton);
     const previewCenterY = layout.preview.y + layout.preview.height * 0.46;
     const scale = Math.max(0.48, Math.min(0.68, layout.preview.height / 560));
@@ -176,6 +180,8 @@ export class GameRenderer {
     this.hangarRoot.position.set(0, (this.height * 0.5 - previewCenterY) * 0.29, 0);
     this.hangarTheme.lerp(this.hangarTargetTheme, Math.min(1, (this.frameDelta || 0.016) * 5));
     this.hangarScene.background.copy(this.hangarTheme);
+    const energyPhase = this.currentModel.userData.transformPhase?.energyPhase || 0;
+    this.transformLight.intensity = this.quality === "low" ? 0 : energyPhase * (1.35 + Math.sin(this.time * 3.2) * 0.1);
     if (!state.settings.reducedMotion && this.quality !== "low") {
       this.hangarOuterRing.rotation.z = this.time * 0.12;
       this.hangarInnerRing.rotation.z = -this.time * 0.08;
@@ -210,6 +216,7 @@ export class GameRenderer {
     const radarX = this.width / 2;
     const radarY = layout.preview.y + layout.preview.height * 0.45;
     [62, 100, 142].forEach((radius, index) => layer.circle({ x: radarX, y: radarY, radius, color: fighter.accent, opacity: 0.018, border: index === 1 ? COLORS.line : null, z: -1 }));
+    if (state.hangar.previewMode !== "flight") this.drawHangarTransformFx(state, layout, fighter);
     layer.line({ x1: layout.pad, y1: layout.preview.y + 4, x2: layout.pad + 46, y2: layout.preview.y + 4, width: 2, color: COLORS.blue, opacity: 0.74, z: 2 });
     layer.line({ x1: this.width - layout.pad - 46, y1: layout.preview.y + 4, x2: this.width - layout.pad, y2: layout.preview.y + 4, width: 2, color: COLORS.blue, opacity: 0.74, z: 2 });
     if (state.hangar.previewMode === "assault") {
@@ -277,6 +284,23 @@ export class GameRenderer {
       layer.text(card.offset < 0 ? "‹" : card.offset > 0 ? "›" : `${index + 1}/${modes.length}`, { x: rect.x + 4, y: rect.y + 3, width: rect.width - 8, height: 13, color: selected ? fighter.accent : COLORS.soft, fontSize: 7, align: card.offset < 0 ? "left" : card.offset > 0 ? "right" : "center", weight: 900, z: 9 });
       layer.text(mode.name.replace(/^\d+\s*/, ""), { x: rect.x + 5, y: rect.y + 17, width: rect.width - 10, height: 22, color: COLORS.ink, fontSize: selected ? 9 : 8, align: "center", weight: 900, z: 9 });
     });
+  }
+
+  drawHangarTransformFx(state, layout, fighter) {
+    if (state.settings.reducedMotion || this.quality === "low") return;
+    const phases = this.currentModel?.userData?.transformPhase;
+    if (!phases) return;
+    const layer = this.uiLayer;
+    const centerX = this.width / 2;
+    const centerY = layout.preview.y + layout.preview.height * 0.48;
+    const active = 1 - Math.abs(phases.lockPhase * 2 - 1);
+    if (phases.lockPhase < 1) {
+      const radius = 42 + phases.wingPhase * 92;
+      layer.circle({ x: centerX, y: centerY, radius, color: fighter.accent, opacity: 0.025 + active * 0.055, border: fighter.accent, z: 5 });
+    } else {
+      const pulse = 1 + Math.sin(this.time * 5) * 0.08;
+      layer.circle({ x: centerX, y: centerY - 4, radius: 18 * pulse, color: fighter.accent, opacity: 0.05, border: fighter.secondary, z: 5 });
+    }
   }
 
   drawHangarWeaponDemo(state, layout, fighter) {
