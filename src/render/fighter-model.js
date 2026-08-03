@@ -1,16 +1,5 @@
 import * as THREE from "three";
-
-const BLUEPRINTS = {
-  commander: { body: [18, 150], wing: [68, 58, 0.7], canard: 24, tails: 2, engines: 2, bodyColor: 0x6d8797, underside: 0x183342 },
-  falcon: { body: [17, 132], wing: [54, 50, 0.58], canard: 8, tails: 2, engines: 2, bodyColor: 0x607b89, underside: 0x16313d },
-  specter: { body: [22, 142], wing: [78, 66, 0.9], canard: 0, tails: 0, engines: 2, bodyColor: 0x758ca5, underside: 0x1d3244 },
-  hunter: { body: [20, 140], wing: [58, 54, 0.62], canard: 0, tails: 2, engines: 2, bodyColor: 0x748590, underside: 0x1d3039 },
-  lancer: { body: [18, 136], wing: [58, 58, 0.72], canard: 27, tails: 1, engines: 2, bodyColor: 0x667f8d, underside: 0x172f3a },
-  dualist: { body: [19, 133], wing: [55, 55, 0.68], canard: 20, tails: 1, engines: 2, bodyColor: 0x647d88, underside: 0x20323b },
-  skirmisher: { body: [15, 122], wing: [48, 46, 0.48], canard: 18, tails: 1, engines: 1, bodyColor: 0x607d86, underside: 0x17323b },
-  siege: { body: [25, 145], wing: [72, 62, 0.78], canard: 0, tails: 2, engines: 2, bodyColor: 0x7a8c98, underside: 0x293943 },
-  hypersonic: { body: [21, 156], wing: [82, 70, 0.92], canard: 28, tails: 2, engines: 3, bodyColor: 0x477992, underside: 0x102f41 },
-};
+import { fighterAirframeSpec } from "../content/fighter-geometry.js";
 
 const MOTIONS = {
   commander: { fold: 0.42, sweep: 0.18, lift: 9, outward: 2, canard: 0.52, tail: 0.34, tailLift: 12 },
@@ -449,9 +438,33 @@ function createTransformationHardware(root, blueprint, materials, parts, profile
 
 }
 
+function addWeaponHardpoints(root, blueprint) {
+  const [bodyWidth, bodyLength] = blueprint.body;
+  const wingSpan = blueprint.wing[0];
+  const positions = {
+    nose: [0, 7, -bodyLength * 0.44],
+    center: [0, 3, -bodyLength * 0.24],
+    leftWing: [-wingSpan * 0.46, 1, -bodyLength * 0.04],
+    rightWing: [wingSpan * 0.46, 1, -bodyLength * 0.04],
+    leftBay: [-bodyWidth * 0.72, -2, -bodyLength * 0.02],
+    rightBay: [bodyWidth * 0.72, -2, -bodyLength * 0.02],
+    droneLeft: [-wingSpan * 0.62, 2, bodyLength * 0.08],
+    droneRight: [wingSpan * 0.62, 2, bodyLength * 0.08],
+  };
+  const hardpoints = {};
+  Object.entries(positions).forEach(([id, position]) => {
+    const point = new THREE.Object3D();
+    point.name = `weapon-hardpoint-${id}`;
+    point.position.set(...position);
+    root.add(point);
+    hardpoints[id] = point;
+  });
+  return hardpoints;
+}
+
 export function createFighterModel(fighter) {
   const profile = fighter.rig.profile;
-  const blueprint = BLUEPRINTS[profile] || BLUEPRINTS.commander;
+  const blueprint = fighterAirframeSpec(fighter);
   const accent = new THREE.Color(fighter.accent);
   const secondary = new THREE.Color(fighter.secondary);
   const materials = {
@@ -484,6 +497,7 @@ export function createFighterModel(fighter) {
   addAirframeDetails(root, blueprint, materials, parts);
   addProfileDetails(root, profile, materials, parts);
   createTransformationHardware(root, blueprint, materials, parts, profile);
+  const hardpoints = addWeaponHardpoints(root, blueprint);
   root.userData = {
     fighterId: fighter.id,
     profile,
@@ -492,6 +506,7 @@ export function createFighterModel(fighter) {
     form: AERIAL_FORMS[profile] || AERIAL_FORMS.commander,
     mechForm: FLIGHT_MECH_FORMS[profile] || FLIGHT_MECH_FORMS.commander,
     parts,
+    hardpoints,
     materials,
     previewMode: "flight",
     previewProgress: 0,
@@ -507,7 +522,7 @@ function smoothstep(value) {
 }
 
 function modeTarget(mode) {
-  return mode === "flight" ? 0 : 1;
+  return mode === "transform" ? 1 : 0;
 }
 
 function phase(value, start, end) {
@@ -575,6 +590,7 @@ export function updateFighterModel(group, mode, time, userRotation = 0, reducedM
   if (data.previewMode !== mode) {
     data.previewMode = mode;
     data.modeChangedAt = time;
+    if (mode === "assault" || mode === "tactical") data.previewProgress = 0;
   }
   const delta = Math.max(0, Math.min(0.05, time - data.lastTime || 0));
   data.lastTime = time;

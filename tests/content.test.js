@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { FIGHTER_ORDER, FIGHTERS, WINGMAN_SPECS, getToolModes } from "../src/content/fighter-profiles.js";
 import { BATTLE_MAPS, MAP_ORDER, createMapStructures } from "../src/content/battle-maps.js";
+import { BATTLE_VISUALS, environmentDensity } from "../src/content/battle-visuals.js";
 import { MINI_MISSION_ORDER, coasterMotion } from "../src/content/mini-missions.js";
 import { TRANSFORM_CORE_COST, TRANSFORM_DURATION, canEnterCoreTransform } from "../src/content/gameplay-rules.js";
 
@@ -34,6 +35,16 @@ describe("migrated content contract", () => {
       expect(createMapStructures(id, 375, 812).length).toBeGreaterThanOrEqual(8);
       expect(BATTLE_MAPS[id].description.length).toBeGreaterThan(12);
       expect(BATTLE_MAPS[id].feature.split("·").length).toBeGreaterThanOrEqual(3);
+    });
+  });
+
+  test("gives every map a distinct layered battlefield identity", () => {
+    expect(Object.keys(BATTLE_VISUALS)).toEqual(MAP_ORDER);
+    expect(new Set(MAP_ORDER.map((id) => BATTLE_VISUALS[id].terrain)).size).toBe(5);
+    MAP_ORDER.forEach((id) => {
+      expect(BATTLE_VISUALS[id].landmarks).toHaveLength(3);
+      expect(environmentDensity(id, "low")).toBeLessThan(environmentDensity(id, "high"));
+      expect(environmentDensity(id, "low")).toBeGreaterThanOrEqual(3);
     });
   });
 

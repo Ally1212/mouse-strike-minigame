@@ -1,11 +1,15 @@
 import * as THREE from "three";
 import { BATTLE_MAPS } from "../content/battle-maps.js";
+import { battleVisual, environmentDensity } from "../content/battle-visuals.js";
+import { fighterCombatScale, fighterSilhouetteGeometry, fighterWeaponHardpointKeys } from "../content/fighter-geometry.js";
+import { fighterAbility } from "../content/fighter-abilities.js";
 import { FIGHTER_ORDER, FIGHTERS } from "../content/fighter-profiles.js";
 import { MINI_MISSIONS } from "../content/mini-missions.js";
 import { normalizeWeaponIndex, weaponMetrics } from "../content/weapon-metrics.js";
 import { computeCombatLayout, computeHangarLayout } from "../ui/layout.js";
 import { createFighterModel, updateFighterModel } from "./fighter-model.js";
 import { ImmediateLayer } from "./immediate-layer.js";
+import { weaponPreviewFrame } from "./weapon-preview.js";
 
 const COLORS = {
   paper: "#071a28",
@@ -23,16 +27,41 @@ const COLORS = {
   battleInk: "#061722",
 };
 
-const MAP_VISUALS = {
-  usa: { sky: "#12384d", deep: "#071e2c", haze: "#5b91a8", streak: "#b8dbe6" },
-  pacific: { sky: "#164754", deep: "#062630", haze: "#4e9eaa", streak: "#b6e1e4" },
-  arctic: { sky: "#194d55", deep: "#08282f", haze: "#62bea8", streak: "#c8f3e9" },
-  "sky-corridor": { sky: "#183f60", deep: "#091d33", haze: "#4b8fc5", streak: "#c0e5ff" },
-  "meteor-rift": { sky: "#492d42", deep: "#1b1525", haze: "#a05d6c", streak: "#ffd09a" },
-};
-
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, Number(value) || 0));
+}
+
+function lightenHex(hex, amount = 0) {
+  const value = Number.parseInt(String(hex).replace("#", ""), 16);
+  const mix = (channel) => Math.round(channel + (255 - channel) * clamp(amount, 0, 1));
+  return `#${[value >> 16, (value >> 8) & 255, value & 255].map((channel) => mix(channel).toString(16).padStart(2, "0")).join("")}`;
+}
+
+function darkenHex(hex, amount = 0) {
+  const value = Number.parseInt(String(hex).replace("#", ""), 16);
+  const mix = (channel) => Math.round(channel * (1 - clamp(amount, 0, 1)));
+  return `#${[value >> 16, (value >> 8) & 255, value & 255].map((channel) => mix(channel).toString(16).padStart(2, "0")).join("")}`;
+}
+
+export function colorLuminance(hex) {
+  const value = Number.parseInt(String(hex).replace("#", ""), 16);
+  const channels = [value >> 16, (value >> 8) & 255, value & 255].map((channel) => {
+    const normalized = channel / 255;
+    return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+  });
+  return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+}
+
+export function fighterPaintPalette(bodyColor, transformed = false, accent = "#39cdf3") {
+  if (transformed) return { body: accent, upper: lightenHex(accent, 0.1), wing: lightenHex(accent, 0.05), panel: darkenHex(accent, 0.48) };
+  const luminance = colorLuminance(bodyColor);
+  const upperLift = luminance > 0.24 ? 0.055 : luminance > 0.14 ? 0.09 : 0.14;
+  return {
+    body: bodyColor,
+    upper: lightenHex(bodyColor, upperLift),
+    wing: lightenHex(bodyColor, upperLift * 0.72),
+    panel: luminance > 0.2 ? darkenHex(bodyColor, 0.42) : lightenHex(bodyColor, 0.42),
+  };
 }
 
 function wrapLine(line, max = 25) {
@@ -66,6 +95,24 @@ export class GameRenderer {
     this.uiCamera.position.z = 100;
     this.uiLayer = new ImmediateLayer(runtime);
     this.uiScene.add(this.uiLayer.group);
+    this.hudScene = new THREE.Scene();
+    this.hudLayer = new ImmediateLayer(runtime);
+    this.hudScene.add(this.hudLayer.group);
+    this.combatScene = new THREE.Scene();
+    this.combatCamera = new THREE.OrthographicCamera(-this.width / 2, this.width / 2, this.height / 2, -this.height / 2, 0.1, 1000);
+    this.combatCamera.position.set(0, 500, 0);
+    this.combatCamera.up.set(0, 0, -1);
+    this.combatCamera.lookAt(0, 0, 0);
+    this.combatRoot = new THREE.Group();
+    this.combatScene.add(this.combatRoot);
+    this.combatScene.add(new THREE.HemisphereLight(0xbcecff, 0x07131b, 2.2));
+    const combatKey = new THREE.DirectionalLight(0xeefaff, 3.4);
+    combatKey.position.set(-140, 260, 90);
+    this.combatScene.add(combatKey);
+    const combatRim = new THREE.DirectionalLight(0x4bcdf4, 1.8);
+    combatRim.position.set(130, 160, -120);
+    this.combatScene.add(combatRim);
+    this.combatVisual = { lastX: this.width / 2, bank: 0, pitch: 0 };
     this.hangarScene = new THREE.Scene();
     this.hangarScene.background = new THREE.Color(COLORS.paper);
     this.hangarCamera = new THREE.PerspectiveCamera(38, this.width / this.height, 0.1, 2000);
@@ -123,6 +170,11 @@ export class GameRenderer {
     this.uiCamera.top = this.height;
     this.uiCamera.bottom = 0;
     this.uiCamera.updateProjectionMatrix();
+    this.combatCamera.left = -this.width / 2;
+    this.combatCamera.right = this.width / 2;
+    this.combatCamera.top = this.height / 2;
+    this.combatCamera.bottom = -this.height / 2;
+    this.combatCamera.updateProjectionMatrix();
     this.hangarCamera.aspect = this.width / this.height;
     this.hangarCamera.updateProjectionMatrix();
   }
@@ -142,7 +194,7 @@ export class GameRenderer {
   setFighter(fighterId) {
     if (this.modelId === fighterId) return;
     if (this.currentModel) {
-      this.hangarRoot.remove(this.currentModel);
+      this.currentModel.parent?.remove(this.currentModel);
       this.currentModel.traverse((item) => {
         item.geometry?.dispose?.();
         if (Array.isArray(item.material)) item.material.forEach((material) => material.dispose?.());
@@ -169,6 +221,7 @@ export class GameRenderer {
 
   renderHangar(state) {
     this.setFighter(state.fighterId);
+    if (this.currentModel.parent !== this.hangarRoot) this.hangarRoot.add(this.currentModel);
     updateFighterModel(this.currentModel, state.hangar.previewMode, this.time, state.hangar.modelRotation, state.settings.reducedMotion, this.quality === "low");
     const layout = computeHangarLayout(this.width, this.height, this.runtime.viewport.safeArea, this.runtime.viewport.menuButton);
     const previewCenterY = layout.preview.y + layout.preview.height * 0.46;
@@ -177,6 +230,7 @@ export class GameRenderer {
     this.currentModel.scale.setScalar(scale * (FIGHTERS[state.fighterId].rig.cameraScale || 1) * (1 - Math.abs(transition) * 0.055));
     this.currentModel.position.x = transition * 28;
     this.currentModel.rotation.y += transition * -0.16;
+    this.currentModel.visible = state.hangar.previewMode !== "assault";
     this.hangarRoot.position.set(0, (this.height * 0.5 - previewCenterY) * 0.29, 0);
     this.hangarTheme.lerp(this.hangarTargetTheme, Math.min(1, (this.frameDelta || 0.016) * 5));
     this.hangarScene.background.copy(this.hangarTheme);
@@ -216,7 +270,7 @@ export class GameRenderer {
     const radarX = this.width / 2;
     const radarY = layout.preview.y + layout.preview.height * 0.45;
     [62, 100, 142].forEach((radius, index) => layer.circle({ x: radarX, y: radarY, radius, color: fighter.accent, opacity: 0.018, border: index === 1 ? COLORS.line : null, z: -1 }));
-    if (state.hangar.previewMode !== "flight") this.drawHangarTransformFx(state, layout, fighter);
+    if (state.hangar.previewMode === "transform") this.drawHangarTransformFx(state, layout, fighter);
     layer.line({ x1: layout.pad, y1: layout.preview.y + 4, x2: layout.pad + 46, y2: layout.preview.y + 4, width: 2, color: COLORS.blue, opacity: 0.74, z: 2 });
     layer.line({ x1: this.width - layout.pad - 46, y1: layout.preview.y + 4, x2: this.width - layout.pad, y2: layout.preview.y + 4, width: 2, color: COLORS.blue, opacity: 0.74, z: 2 });
     if (state.hangar.previewMode === "assault") {
@@ -281,8 +335,11 @@ export class GameRenderer {
       const pressed = state.uiPress === `weapon:${card.offset}`;
       const rect = pressed ? { ...card, x: card.x + 2, y: card.y + 2, width: card.width - 4, height: card.height - 4 } : card;
       layer.rect({ ...rect, color: selected ? COLORS.surfaceStrong : COLORS.battleInk, opacity: selected ? 0.98 : 0.8, border: selected ? fighter.accent : COLORS.line, z: 8 });
-      layer.text(card.offset < 0 ? "‹" : card.offset > 0 ? "›" : `${index + 1}/${modes.length}`, { x: rect.x + 4, y: rect.y + 3, width: rect.width - 8, height: 13, color: selected ? fighter.accent : COLORS.soft, fontSize: 7, align: card.offset < 0 ? "left" : card.offset > 0 ? "right" : "center", weight: 900, z: 9 });
-      layer.text(mode.name.replace(/^\d+\s*/, ""), { x: rect.x + 5, y: rect.y + 17, width: rect.width - 10, height: 22, color: COLORS.ink, fontSize: selected ? 9 : 8, align: "center", weight: 900, z: 9 });
+      const marker = card.offset < 0 ? "▲ 上一种" : card.offset > 0 ? "▼ 下一种" : `${index + 1}/${modes.length} 当前`;
+      const name = mode.name.replace(/^\d+\s*/, "");
+      const lines = wrapLine(name, 6).slice(0, 2).join("\n");
+      layer.text(marker, { x: rect.x + 4, y: rect.y + 4, width: rect.width - 8, height: 13, color: selected ? fighter.accent : COLORS.soft, fontSize: 6.5, align: "center", weight: 900, z: 9 });
+      layer.text(lines, { x: rect.x + 5, y: rect.y + 20, width: rect.width - 10, height: 32, color: COLORS.ink, fontSize: selected ? 8.2 : 7.5, align: "center", weight: 900, z: 9 });
     });
   }
 
@@ -306,27 +363,121 @@ export class GameRenderer {
   drawHangarWeaponDemo(state, layout, fighter) {
     const layer = this.uiLayer;
     const mode = fighter.toolModes[state.hangar.weaponModeIndex || 0];
-    const progress = state.settings.reducedMotion ? 0.55 : (this.time * 1.8) % 1;
-    const originX = this.width / 2;
-    const originY = layout.previewButtons[0].y - 38;
-    const targetY = layout.weaponCards[0].y + layout.weaponCards[0].height + 10;
-    const count = Math.min(5, mode.count || 1);
-    if (mode.pattern === "laser") {
-      for (let index = 0; index < count; index += 1) {
-        const offset = (index - (count - 1) / 2) * 12;
-        layer.line({ x1: originX + offset * 0.35, y1: originY, x2: originX + offset, y2: targetY, width: Math.min(5, (mode.width || 4) * 0.45), color: index % 2 ? fighter.secondary : fighter.accent, opacity: 0.48 + progress * 0.32, z: 6 });
+    const bounds = {
+      x: layout.weaponCards[0].x + layout.weaponCards[0].width + 12,
+      y: layout.preview.y + 42,
+      width: this.width - layout.pad - (layout.weaponCards[0].x + layout.weaponCards[0].width + 12),
+      height: layout.previewButtons[0].y - 12 - (layout.preview.y + 42),
+    };
+    layer.rect({ ...bounds, color: COLORS.battleInk, opacity: 0.17, border: COLORS.line, z: 2 });
+    layer.text("WEAPON TEST", { x: bounds.x + 8, y: bounds.y + 6, width: bounds.width - 16, height: 14, color: fighter.accent, fontSize: 6.5, align: "right", weight: 900, opacity: 0.72, z: 4 });
+    const plane = this.drawWeaponPreviewAircraft(layer, fighter, bounds);
+    const originKeys = fighterWeaponHardpointKeys(mode.pattern, mode.count);
+    const origins = originKeys.map((key) => plane.origins[key]).filter(Boolean);
+    const elapsed = Math.max(0, this.time - (state.hangar.weaponPreviewStartedAt || 0));
+    const frame = weaponPreviewFrame({ mode, elapsed, origins, bounds, reducedMotion: state.settings.reducedMotion });
+
+    frame.targets.forEach((target, index) => {
+      const pulse = state.settings.reducedMotion ? 1 : 1 + Math.sin(this.time * 3 + index) * 0.08;
+      const radius = (target.kind === "armor" ? 11 : 8) * pulse;
+      layer.circle({ x: target.x, y: target.y, radius: radius + 5, color: fighter.accent, opacity: 0.025, border: COLORS.line, z: 4 });
+      layer.circle({ x: target.x, y: target.y, radius, color: COLORS.battleInk, opacity: 0.82, border: target.kind === "armor" ? fighter.secondary : fighter.accent, z: 5 });
+      layer.line({ x1: target.x - radius * 0.55, y1: target.y, x2: target.x + radius * 0.55, y2: target.y, width: 1, color: fighter.accent, opacity: 0.7, z: 6 });
+    });
+    if (frame.charge) {
+      layer.circle({ x: frame.charge.x, y: frame.charge.y, radius: 5 + frame.charge.progress * 10, color: "#ffffff", opacity: 0.08 + frame.charge.progress * 0.2, border: fighter.accent, z: 9 });
+    }
+    frame.beams.forEach((beam) => {
+      layer.line({ x1: beam.origin.x, y1: beam.origin.y, x2: beam.target.x, y2: beam.target.y, width: beam.width * 2.1, color: "#ffffff", opacity: 0.42, z: 7 });
+      layer.line({ x1: beam.origin.x, y1: beam.origin.y, x2: beam.target.x, y2: beam.target.y, width: beam.width, color: beam.index % 2 ? fighter.secondary : fighter.accent, opacity: 0.92, z: 8 });
+    });
+    frame.drones.forEach((drone) => layer.polygon({
+      points: [{ x: drone.x, y: drone.y - 7 }, { x: drone.x + drone.side * 9, y: drone.y + 5 }, { x: drone.x, y: drone.y + 2 }, { x: drone.x - drone.side * 5, y: drone.y + 5 }],
+      color: fighter.accent,
+      border: fighter.secondary,
+      z: 8,
+    }));
+    frame.projectiles.forEach((bullet) => {
+      if (bullet.type === "rail") {
+        layer.line({ x1: bullet.origin.x, y1: bullet.origin.y, x2: bullet.end.x, y2: bullet.end.y, width: 1.2, color: fighter.accent, opacity: 0.22, z: 6 });
+        layer.line({ x1: bullet.x, y1: bullet.y + 13, x2: bullet.x, y2: bullet.y - 15, width: 3, color: "#ffffff", opacity: 0.92, z: 9 });
+      } else if (bullet.type === "wave") {
+        layer.circle({ x: bullet.x, y: bullet.y, radius: bullet.radius + 4, color: fighter.accent, opacity: 0.07, border: fighter.secondary, z: 8 });
+      } else if (bullet.type === "heavy") {
+        layer.circle({ x: bullet.x, y: bullet.y, radius: bullet.radius + 3, color: fighter.accent, opacity: 0.75, border: "#ffffff", z: 9 });
+      } else if (bullet.type === "seeker") {
+        layer.line({ x1: bullet.x, y1: bullet.y + 10, x2: bullet.x, y2: bullet.y + 22, width: 2.2, color: fighter.secondary, opacity: 0.5, z: 7 });
+        layer.polygon({ points: [{ x: bullet.x, y: bullet.y - 7 }, { x: bullet.x + 4, y: bullet.y + 5 }, { x: bullet.x - 4, y: bullet.y + 5 }], color: fighter.accent, border: "#ffffff", z: 9 });
+      } else {
+        layer.line({ x1: bullet.x, y1: bullet.y + 8, x2: bullet.x, y2: bullet.y - 8, width: Math.max(2.5, bullet.radius * 0.75), color: fighter.accent, z: 9 });
       }
-      return;
+    });
+    frame.explosions.forEach((effect) => layer.circle({ x: effect.x, y: effect.y, radius: effect.radius, color: fighter.secondary, opacity: effect.opacity * 0.12, border: fighter.accent, z: 10 }));
+  }
+
+  drawWeaponPreviewAircraft(layer, fighter, bounds) {
+    const x = bounds.x + bounds.width * 0.5;
+    const y = bounds.y + bounds.height * 0.78;
+    const scale = Math.max(0.88, Math.min(1.08, bounds.width / 255));
+    const geometry = this.drawFighterHull(layer, fighter, x, y, scale, { glow: true, detail: "high", z: 10 });
+    return {
+      x,
+      y,
+      origins: geometry.hardpoints,
+    };
+  }
+
+  drawFighterHull(layer, fighter, x, y, scale = 1, options = {}) {
+    const geometry = fighterSilhouetteGeometry(fighter, x, y, scale);
+    const z = options.z || 8;
+    const span = Math.max(...geometry.outline.map((point) => Math.abs(point.x - x)));
+    const detail = options.detail || "medium";
+    const transformed = Boolean(options.transformed);
+    const paint = fighterPaintPalette(geometry.palette.body, transformed, fighter.accent);
+    const bodyColor = paint.body;
+    const wingColor = paint.wing;
+    if (options.glow) {
+      layer.circle({ x, y, radius: span + 18, color: fighter.accent, opacity: 0.035, border: COLORS.line, z: z - 4 });
+      layer.circle({ x, y: y - 4 * scale, radius: span * 0.72, color: fighter.accent, opacity: 0.025, z: z - 3 });
     }
-    for (let index = 0; index < count; index += 1) {
-      const spread = (index - (count - 1) / 2) * Math.max(8, (mode.spread || 0.05) * 150);
-      const x = originX + spread * (1 - progress);
-      const y = originY + (targetY - originY) * progress;
-      if (mode.pattern === "rail") layer.line({ x1: originX + spread * 0.25, y1: originY, x2: x, y2: y, width: 2.4, color: fighter.accent, opacity: 0.75, z: 6 });
-      else if (mode.pattern === "wave") layer.circle({ x, y, radius: 5 + Math.sin(progress * Math.PI) * 5, color: fighter.accent, opacity: 0.34, border: fighter.secondary, z: 6 });
-      else if (mode.pattern === "heavy") layer.circle({ x, y, radius: 8, color: fighter.accent, opacity: 0.72, border: fighter.secondary, z: 6 });
-      else layer.circle({ x, y, radius: mode.pattern === "seeker" ? 4.5 : 3.5, color: fighter.accent, opacity: 0.88, z: 6 });
+    layer.polygon({ points: geometry.outline.map((point) => ({ x: point.x + 2.5 * scale, y: point.y + 4 * scale })), color: "#020c13", opacity: 0.58, z: z - 2 });
+    layer.polygon({ points: geometry.outline, color: geometry.palette.underside, border: lightenHex(geometry.palette.underside, 0.28), z: z - 1 });
+    geometry.wingPanels.forEach((points, index) => layer.polygon({ points, color: index % 2 ? wingColor : darkenHex(wingColor, 0.055), border: paint.panel, z }));
+    layer.polygon({ points: geometry.fuselage, color: bodyColor, border: fighter.accent, z: z + 1 });
+    const upperFuselage = geometry.fuselage.map((point) => ({ x: x + (point.x - x) * 0.58, y: y + (point.y - y) * 0.92 }));
+    layer.polygon({ points: upperFuselage, color: paint.upper, opacity: 0.9, z: z + 2 });
+    geometry.canards.forEach((points) => layer.polygon({ points, color: darkenHex(paint.upper, 0.04), border: paint.panel, z: z + 2 }));
+    geometry.tails.forEach((points) => layer.polygon({ points, color: darkenHex(paint.upper, 0.1), border: paint.panel, z: z + 2 }));
+    if (detail !== "low") {
+      geometry.intakes.forEach((points) => layer.polygon({ points, color: "#06131c", border: fighter.accent, z: z + 3 }));
+      geometry.weaponBays.forEach((line) => layer.line({ ...line, width: Math.max(1, scale), color: fighter.accent, opacity: 0.38, z: z + 3 }));
+      geometry.panelLines.forEach((line) => layer.line({ ...line, width: Math.max(0.8, scale * 0.9), color: paint.panel, opacity: detail === "high" ? 0.48 : 0.3, z: z + 3 }));
     }
+    geometry.engines.forEach((engine) => {
+      layer.line({ x1: engine.x, y1: engine.y, x2: engine.x, y2: engine.y + 16 * scale, width: 6 * scale, color: fighter.accent, opacity: 0.12, z: z - 1 });
+      layer.line({ x1: engine.x, y1: engine.y, x2: engine.x, y2: engine.y + 13 * scale, width: 2.6 * scale, color: fighter.secondary, opacity: 0.72, z: z + 1 });
+      layer.circle({ x: engine.x, y: engine.y, radius: 3.1 * scale, color: "#07131a", border: fighter.accent, z: z + 3 });
+      layer.circle({ x: engine.x, y: engine.y, radius: 1.45 * scale, color: fighter.secondary, z: z + 4 });
+    });
+    layer.line({ ...geometry.spine, width: Math.max(1.2, 1.7 * scale), color: fighter.accent, opacity: 0.42, z: z + 3 });
+    const cockpitLength = geometry.cockpit.radius * 2.3;
+    layer.polygon({ points: [
+      { x, y: geometry.cockpit.y - cockpitLength * 0.62 },
+      { x: x + geometry.cockpit.radius * 0.82, y: geometry.cockpit.y },
+      { x: x + geometry.cockpit.radius * 0.48, y: geometry.cockpit.y + cockpitLength * 0.55 },
+      { x: x - geometry.cockpit.radius * 0.48, y: geometry.cockpit.y + cockpitLength * 0.55 },
+      { x: x - geometry.cockpit.radius * 0.82, y: geometry.cockpit.y },
+    ], color: "#bfeeff", border: fighter.accent, z: z + 5 });
+    layer.line({ x1: x - geometry.cockpit.radius * 0.35, y1: geometry.cockpit.y - cockpitLength * 0.25, x2: x + geometry.cockpit.radius * 0.22, y2: geometry.cockpit.y + cockpitLength * 0.32, width: Math.max(0.8, scale), color: "#ffffff", opacity: 0.72, z: z + 6 });
+    return { ...geometry, span };
+  }
+
+  projectWeaponHardpoint(key) {
+    const point = this.currentModel?.userData?.hardpoints?.[key];
+    if (!point) return null;
+    this.currentModel.updateMatrixWorld(true);
+    const projected = point.getWorldPosition(new THREE.Vector3()).project(this.hangarCamera);
+    return { x: (projected.x + 1) * 0.5 * this.width, y: (1 - projected.y) * 0.5 * this.height };
   }
 
   drawHangarInfo(state, layout, fighter) {
@@ -352,9 +503,10 @@ export class GameRenderer {
       return;
     }
     if (mode === "tactical") {
+      const ability = fighterAbility(fighter.id);
       layer.text(`技能 · ${fighter.tactical.name}`, { x: info.x + 14, y: info.y + 7, width: info.width - 28, height: 18, color: fighter.accent, fontSize: 9, weight: 900 });
-      layer.text(`冷却 ${fighter.tactical.cooldown.toFixed(1)} 秒 · ${fighter.tactical.count} 发 · 战术评分 ${fighter.stats.tactical}`, { x: info.x + 14, y: info.y + 27, width: info.width - 28, height: 18, color: COLORS.ink, fontSize: 9, weight: 850 });
-      wrapLine(fighter.special, this.width < 350 ? 24 : 30).slice(0, 2).forEach((line, index) => layer.text(line, { x: info.x + 14, y: info.y + 49 + index * 17, width: info.width - 28, height: 16, color: COLORS.soft, fontSize: 8, weight: 700 }));
+      layer.text(`冷却 ${fighter.tactical.cooldown.toFixed(1)} 秒 · ${ability.skill.phases.join(" → ")}`, { x: info.x + 14, y: info.y + 27, width: info.width - 28, height: 18, color: COLORS.ink, fontSize: 8, weight: 850 });
+      wrapLine(ability.skill.description, this.width < 350 ? 24 : 30).slice(0, 2).forEach((line, index) => layer.text(line, { x: info.x + 14, y: info.y + 49 + index * 17, width: info.width - 28, height: 16, color: COLORS.soft, fontSize: 8, weight: 700 }));
       return;
     }
     layer.text(`${fighter.country} · ${fighter.role}`, { x: info.x + 14, y: info.y + 7, width: info.width - 28, height: 18, color: fighter.accent, fontSize: 9, weight: 900 });
@@ -396,57 +548,165 @@ export class GameRenderer {
     this.drawAirdrop(layer, combat, shakeX, shakeY);
     this.drawMeteors(layer, combat, shakeX, shakeY);
     this.drawProjectiles(layer, combat, shakeX, shakeY);
+    this.drawSkillEffect(layer, combat, fighter, shakeX, shakeY);
     this.drawEnemies(layer, combat, shakeX, shakeY);
     this.drawBoss(layer, combat, shakeX, shakeY);
     this.drawPickups(layer, combat, shakeX, shakeY);
     this.drawAllies(layer, combat, fighter, shakeX, shakeY);
-    this.drawPlayer(layer, combat, fighter, shakeX, shakeY);
     this.drawParticles(layer, combat, shakeX, shakeY);
-    this.drawCombatHud(layer, state, combat, fighter, layout);
-    this.drawCombatFeedback(layer, state, combat);
-    this.drawToast(state, this.height - 150);
-    if (state.modal) this.drawModal(state.modal);
     layer.end();
     this.renderer.autoClear = false;
     this.renderer.clearDepth();
     this.renderer.render(this.uiScene, this.uiCamera);
+    this.renderCombatFighter(combat, fighter, shakeX, shakeY, state.settings.reducedMotion);
+    const hud = this.hudLayer;
+    hud.begin();
+    this.drawCombatHud(hud, state, combat, fighter, layout);
+    this.drawCombatFeedback(hud, state, combat);
+    this.drawToast(state, this.height - 150, hud);
+    if (state.modal) this.drawModal(state.modal, hud);
+    hud.end();
+    this.renderer.clearDepth();
+    this.renderer.render(this.hudScene, this.uiCamera);
     combat.quality.drawCalls = this.renderer.info.render.calls;
   }
 
+  renderCombatFighter(combat, fighter, ox, oy, reducedMotion = false) {
+    this.setFighter(fighter.id);
+    if (this.currentModel.parent !== this.combatRoot) this.combatRoot.add(this.currentModel);
+    updateFighterModel(this.currentModel, combat.transformed ? "transform" : "flight", this.time, 0, reducedMotion, this.quality === "low");
+    const x = combat.player.x + ox;
+    const y = combat.player.y + oy;
+    const deltaX = x - this.combatVisual.lastX;
+    this.combatVisual.lastX = x;
+    const response = reducedMotion ? 1 : Math.min(1, (this.frameDelta || 0.016) * 10);
+    const targetBank = reducedMotion ? 0 : clamp(-deltaX * 0.025, -0.3, 0.3);
+    this.combatVisual.bank += (targetBank - this.combatVisual.bank) * response;
+    const targetPitch = reducedMotion ? 0 : clamp(Math.abs(deltaX) * 0.004, 0, 0.09);
+    this.combatVisual.pitch += (targetPitch - this.combatVisual.pitch) * response;
+    const scale = combat.transformed ? 0.72 : 0.64;
+    this.currentModel.scale.setScalar(scale);
+    this.currentModel.position.set(x - this.width / 2, 0, y - this.height / 2);
+    this.currentModel.rotation.set(-0.06 - this.combatVisual.pitch, 0, this.combatVisual.bank);
+    this.currentModel.visible = true;
+    this.renderer.clearDepth();
+    this.renderer.render(this.combatScene, this.combatCamera);
+  }
+
   drawBattleBackground(layer, map, combat, ox, oy) {
-    const visual = MAP_VISUALS[map.id] || MAP_VISUALS.usa;
+    const visual = battleVisual(map.id);
     layer.rect({ x: 0, y: 0, width: this.width, height: this.height, color: visual.deep, z: -20 });
-    layer.rect({ x: 0, y: 0, width: this.width, height: this.height * 0.54, color: visual.sky, opacity: 0.96, z: -19 });
-    layer.rect({ x: 0, y: this.height * 0.46, width: this.width, height: this.height * 0.2, color: visual.haze, opacity: 0.12, z: -18 });
-    const scroll = (combat.elapsed * map.structureSpeed * 0.7) % 220;
-    for (let index = 0; index < 6; index += 1) {
-      const y = ((index * 154 + scroll) % (this.height + 180)) - 90;
-      const drift = ((index * 73) % 120) - 60;
-      layer.line({ x1: this.width * 0.5 + drift * 0.12 + ox, y1: 96 + oy, x2: this.width * 0.5 + drift * 2.8 + ox, y2: y + oy, width: index % 2 ? 2 : 4, color: visual.streak, opacity: index % 2 ? 0.13 : 0.08, z: -17 });
-    }
-    if (map.id === "pacific") {
-      for (let index = 0; index < 7; index += 1) {
-        const x = (index * 67 + combat.elapsed * 46) % (this.width + 60) - 30;
-        layer.line({ x1: x, y1: 100, x2: x - 28, y2: this.height, width: 1, color: "#b8edf2", opacity: 0.16, z: -16 });
+    layer.rect({ x: 0, y: 0, width: this.width, height: this.height * 0.58, color: visual.sky, opacity: 0.98, z: -19 });
+    layer.rect({ x: 0, y: this.height * 0.28, width: this.width, height: this.height * 0.48, color: visual.horizon, opacity: 0.18, z: -18 });
+    const farScroll = (combat.elapsed * map.structureSpeed * 0.24) % 260;
+    const midScroll = (combat.elapsed * map.structureSpeed * 0.62) % 360;
+    const nearScroll = (combat.elapsed * map.structureSpeed * 1.12) % 440;
+    this.drawFarTerrain(layer, map.id, visual, farScroll, ox, oy);
+    this.drawEnvironmentLandmarks(layer, map.id, visual, midScroll, ox, oy);
+    this.drawNearAtmosphere(layer, map.id, visual, nearScroll, ox, oy);
+    layer.text(`${map.code}  /  ${map.name}`, { x: 14, y: Math.max(108, this.runtime.viewport.safeArea.top + 76), width: this.width - 28, height: 20, color: visual.streak, fontSize: 7, weight: 900, z: -12 });
+  }
+
+  drawFarTerrain(layer, mapId, visual, scroll, ox, oy) {
+    const horizonY = this.height * 0.29;
+    if (mapId === "pacific") {
+      layer.rect({ x: 0, y: horizonY, width: this.width, height: this.height - horizonY, color: "#0a4350", opacity: 0.62, z: -17 });
+      for (let index = 0; index < 10; index += 1) {
+        const y = horizonY + ((index * 82 + scroll) % (this.height - horizonY + 100));
+        const width = 34 + (y / this.height) * 94;
+        layer.line({ x1: (index * 79) % this.width - width * 0.5 + ox, y1: y + oy, x2: (index * 79) % this.width + width + ox, y2: y + 5 + oy, width: 2.2, color: visual.streak, opacity: 0.12, z: -16 });
       }
-    } else if (map.id === "arctic") {
+      const wakeY = horizonY + ((scroll * 1.7) % Math.max(180, this.height - horizonY));
+      layer.line({ x1: this.width * 0.38 + ox, y1: wakeY + oy, x2: this.width * 0.12 + ox, y2: wakeY + 92 + oy, width: 3, color: "#78bec5", opacity: 0.12, z: -16 });
+      layer.line({ x1: this.width * 0.62 + ox, y1: wakeY + oy, x2: this.width * 0.88 + ox, y2: wakeY + 92 + oy, width: 3, color: "#78bec5", opacity: 0.12, z: -16 });
+      return;
+    }
+    if (mapId === "arctic") {
+      layer.polygon({ points: [{ x: 0, y: horizonY + 62 }, { x: this.width * 0.2, y: horizonY + 8 }, { x: this.width * 0.38, y: horizonY + 54 }, { x: this.width * 0.66, y: horizonY - 8 }, { x: this.width, y: horizonY + 52 }, { x: this.width, y: this.height }, { x: 0, y: this.height }], color: "#245965", opacity: 0.76, z: -17 });
       for (let index = 0; index < 3; index += 1) {
-        const wave = Math.sin(this.time * 0.7 + index) * 30;
-        layer.line({ x1: -20, y1: 160 + index * 46 + wave, x2: this.width + 20, y2: 112 + index * 58 - wave, width: 12 - index * 2, color: index % 2 ? "#5be7c1" : "#68baf0", opacity: 0.09, z: -16 });
+        const wave = Math.sin(this.time * 0.65 + index) * 26;
+        layer.line({ x1: -30, y1: 130 + index * 42 + wave, x2: this.width + 30, y2: 102 + index * 54 - wave, width: 10 - index * 2, color: index % 2 ? "#5be7c1" : "#68baf0", opacity: 0.1, z: -16 });
       }
-    } else if (map.id === "meteor-rift") {
-      for (let index = 0; index < 16; index += 1) {
+      for (let index = 0; index < 5; index += 1) {
+        const y = horizonY + 110 + ((index * 147 + scroll) % Math.max(220, this.height - horizonY));
         const x = (index * 83) % this.width;
-        const y = (index * 137 + combat.elapsed * 24) % this.height;
-        layer.circle({ x, y, radius: index % 4 === 0 ? 2 : 1, color: "#ffd6a0", opacity: 0.42, z: -16 });
+        layer.line({ x1: x - 34 + ox, y1: y - 16 + oy, x2: x + ox, y2: y + oy, width: 2, color: "#8ac8c9", opacity: 0.24, z: -16 });
+        layer.line({ x1: x + ox, y1: y + oy, x2: x + 42 + ox, y2: y - 24 + oy, width: 2, color: "#8ac8c9", opacity: 0.2, z: -16 });
       }
-    } else {
-      for (let index = 0; index < 4; index += 1) {
-        const y = 130 + ((index * 190 + scroll * 0.42) % Math.max(220, this.height - 160));
-        layer.line({ x1: -30, y1: y, x2: this.width + 30, y2: y + 14, width: 18, color: visual.streak, opacity: 0.035, z: -16 });
+      return;
+    }
+    if (mapId === "meteor-rift") {
+      layer.polygon({ points: [{ x: 0, y: 150 }, { x: this.width * 0.23, y: 250 }, { x: this.width * 0.12, y: this.height }, { x: 0, y: this.height }], color: "#251b29", border: "#704452", z: -17 });
+      layer.polygon({ points: [{ x: this.width, y: 130 }, { x: this.width * 0.76, y: 270 }, { x: this.width * 0.9, y: this.height }, { x: this.width, y: this.height }], color: "#291b28", border: "#754656", z: -17 });
+      layer.line({ x1: this.width * 0.5, y1: horizonY, x2: this.width * 0.54, y2: this.height, width: 18, color: "#d26855", opacity: 0.13, z: -16 });
+      return;
+    }
+    const ground = mapId === "sky-corridor" ? "#153653" : "#183c48";
+    layer.polygon({ points: [{ x: 0, y: horizonY + 52 }, { x: this.width * 0.18, y: horizonY + 20 }, { x: this.width * 0.37, y: horizonY + 58 }, { x: this.width * 0.62, y: horizonY + 14 }, { x: this.width, y: horizonY + 58 }, { x: this.width, y: this.height }, { x: 0, y: this.height }], color: ground, opacity: mapId === "sky-corridor" ? 0.42 : 0.78, z: -17 });
+    if (mapId === "usa") {
+      layer.polygon({ points: [{ x: this.width * 0.47, y: horizonY + 20 }, { x: this.width * 0.53, y: horizonY + 20 }, { x: this.width * 0.72, y: this.height }, { x: this.width * 0.28, y: this.height }], color: "#112b34", opacity: 0.82, border: "#45636b", z: -16 });
+      for (let index = 0; index < 7; index += 1) {
+        const y = horizonY + 54 + ((index * 116 + scroll) % Math.max(200, this.height - horizonY));
+        const perspective = clamp((y - horizonY) / Math.max(1, this.height - horizonY), 0.1, 1);
+        layer.line({ x1: this.width * 0.5 - 5 * perspective + ox, y1: y + oy, x2: this.width * 0.5 + 5 * perspective + ox, y2: y + oy, width: 2 + perspective * 3, color: "#d2c58d", opacity: 0.32, z: -15 });
+      }
+    } else if (mapId === "sky-corridor") {
+      layer.line({ x1: this.width * 0.42 + ox, y1: horizonY + oy, x2: this.width * 0.12 + ox, y2: this.height + oy, width: 3, color: "#478ab3", opacity: 0.3, z: -16 });
+      layer.line({ x1: this.width * 0.58 + ox, y1: horizonY + oy, x2: this.width * 0.88 + ox, y2: this.height + oy, width: 3, color: "#478ab3", opacity: 0.3, z: -16 });
+      for (let index = 0; index < 5; index += 1) {
+        const y = horizonY + 65 + ((index * 153 + scroll) % Math.max(240, this.height - horizonY));
+        layer.line({ x1: this.width * 0.2 + ox, y1: y + oy, x2: this.width * 0.8 + ox, y2: y + oy, width: 1.5, color: "#6eacd1", opacity: 0.16, z: -16 });
       }
     }
-    layer.text(map.name, { x: 14, y: Math.max(108, this.runtime.viewport.safeArea.top + 76), width: this.width - 28, height: 20, color: visual.streak, fontSize: 8, weight: 900, z: -15 });
+  }
+
+  drawEnvironmentLandmarks(layer, mapId, visual, scroll, ox, oy) {
+    const count = environmentDensity(mapId, this.quality);
+    for (let index = 0; index < count; index += 1) {
+      const lane = ((index * 97 + 31) % 100) / 100;
+      const y = 120 + ((index * 173 + scroll) % (this.height + 240));
+      const perspective = clamp((y - 80) / Math.max(1, this.height - 80), 0.15, 1);
+      const x = this.width * (0.08 + lane * 0.84) + ox;
+      const size = (8 + 24 * perspective) * (index % 3 === 0 ? 1.25 : 1);
+      if (mapId === "usa") {
+        if (index % 3 === 0) {
+          layer.circle({ x, y: y + oy, radius: size * 0.48, color: "#112c36", border: visual.haze, opacity: 0.82, z: -15 });
+          layer.line({ x1: x, y1: y + oy, x2: x, y2: y + size * 1.25 + oy, width: 2.4, color: "#6f8f95", opacity: 0.7, z: -14 });
+          layer.line({ x1: x - size * 0.42, y1: y + oy, x2: x + size * 0.42, y2: y + oy, width: 2, color: visual.haze, opacity: 0.6, z: -14 });
+        } else {
+          layer.rect({ x: x - size, y: y + oy, width: size * 2, height: size * 0.7, color: "#1a343c", opacity: 0.78, border: "#55727a", z: -15 });
+        }
+      } else if (mapId === "pacific") {
+        if (index % 3 === 0) layer.polygon({ points: [{ x: x - size, y: y + oy }, { x: x + size * 0.85, y: y + oy }, { x: x + size * 0.55, y: y + size * 0.42 + oy }, { x: x - size * 0.72, y: y + size * 0.42 + oy }], color: "#243f48", border: "#7c9ba1", z: -15 });
+        else layer.circle({ x, y: y + oy, radius: size * 0.48, color: "#1c5559", opacity: 0.85, border: "#6ba7a5", z: -15 });
+      } else if (mapId === "arctic") {
+        layer.polygon({ points: [{ x: x - size, y: y + size * 0.55 + oy }, { x: x - size * 0.3, y: y - size * 0.45 + oy }, { x: x + size * 0.22, y: y + size * 0.05 + oy }, { x: x + size, y: y + size * 0.62 + oy }], color: index % 2 ? "#4c8990" : "#39757e", border: "#8cc4c4", z: -15 });
+      } else if (mapId === "sky-corridor") {
+        layer.rect({ x: x - size, y: y + oy, width: size * 2, height: size * 0.36, color: "#1c4867", opacity: 0.82, border: "#5e9dc6", z: -15 });
+        layer.circle({ x, y: y - size * 0.18 + oy, radius: size * 0.18, color: "#56b8df", opacity: 0.24, border: visual.streak, z: -14 });
+      } else {
+        layer.circle({ x, y: y + oy, radius: size * 0.58, color: "#372834", border: "#8d5a5e", z: -15 });
+        layer.circle({ x: x - size * 0.17, y: y - size * 0.12 + oy, radius: size * 0.16, color: "#b45f4f", opacity: 0.42, z: -14 });
+      }
+    }
+  }
+
+  drawNearAtmosphere(layer, mapId, visual, scroll, ox, oy) {
+    const bands = this.quality === "low" ? 3 : 5;
+    for (let index = 0; index < bands; index += 1) {
+      const y = 170 + ((index * 211 + scroll) % Math.max(260, this.height - 110));
+      const side = index % 2 ? 1 : -1;
+      const x = side > 0 ? this.width * 0.76 : this.width * 0.24;
+      const width = 56 + (y / this.height) * 92;
+      const cloudColor = mapId === "meteor-rift" ? "#b46b67" : visual.haze;
+      layer.circle({ x: x + ox, y: y + oy, radius: width * 0.34, color: cloudColor, opacity: mapId === "pacific" ? 0.035 : 0.026, z: -13 });
+      layer.line({ x1: x - width + ox, y1: y + oy, x2: x + width + ox, y2: y + 9 * side + oy, width: 14, color: cloudColor, opacity: 0.028, z: -13 });
+    }
+    for (let index = 0; index < 4; index += 1) {
+      const y = ((index * 223 + scroll * 1.35) % (this.height + 160)) - 80;
+      const drift = ((index * 71) % 90) - 45;
+      layer.line({ x1: this.width * 0.5 + drift * 0.18 + ox, y1: 104 + oy, x2: this.width * 0.5 + drift * 3.6 + ox, y2: y + oy, width: index % 2 ? 1.5 : 3, color: visual.streak, opacity: index % 2 ? 0.1 : 0.065, z: -12 });
+    }
   }
 
   drawMapStructures(layer, combat, ox, oy) {
@@ -571,18 +831,47 @@ export class GameRenderer {
     });
     combat.laserBeams.forEach((beam) => {
       const originX = combat.player.x + beam.offsetX + ox;
-      const originY = combat.player.y - 24 + oy;
+      const originY = combat.player.y + (beam.offsetY ?? -24) + oy;
       const endX = originX + Math.sin(beam.angle) * this.height;
       const endY = originY - Math.cos(beam.angle) * this.height;
       layer.line({ x1: originX, y1: originY, x2: endX, y2: endY, width: beam.width * 2.4, color: "#ffffff", opacity: 0.5, z: 5 });
       layer.line({ x1: originX, y1: originY, x2: endX, y2: endY, width: beam.width, color: beam.color, z: 6 });
-      if (beam.reflect) layer.line({ x1: endX, y1: endY, x2: this.width - endX, y2: this.height * 0.18, width: beam.width * 0.8, color: beam.color, opacity: 0.8, z: 6 });
     });
     if (combat.laserWarmup > 0) layer.circle({ x: combat.player.x + ox, y: combat.player.y - 28 + oy, radius: 8 + Math.sin(this.time * 22) * 3, color: "#ffffff", border: FIGHTERS[this.state.fighterId].accent, z: 7 });
   }
 
   drawEnemies(layer, combat, ox, oy) {
     combat.entities.enemies.forEach((enemy) => this.drawAircraft(layer, enemy.x + ox, enemy.y + oy, enemy.radius, enemy.hitFlash > 0 ? "#ffffff" : enemy.color, enemy.type, 2));
+  }
+
+  drawSkillEffect(layer, combat, fighter, ox, oy) {
+    const effect = combat.skillEffect;
+    if (!effect) return;
+    const progress = clamp(effect.elapsed / 1.35, 0, 1);
+    const x = combat.player.x + ox;
+    const y = combat.player.y - 30 + oy;
+    const fade = 1 - progress * 0.7;
+    if (effect.style === "command-lock") {
+      combat.entities.enemies.slice(0, 6).forEach((enemy) => layer.circle({ x: enemy.x + ox, y: enemy.y + oy, radius: 18 + progress * 8, color: fighter.accent, opacity: 0.04, border: fighter.accent, z: 7 }));
+      layer.line({ x1: x, y1: y, x2: x, y2: 80, width: 4 + progress * 5, color: fighter.secondary, opacity: fade, z: 7 });
+    } else if (effect.style === "twin-intercept") {
+      layer.line({ x1: 12, y1: y - 120 * progress, x2: this.width - 12, y2: y - 280 * progress, width: 5, color: fighter.accent, opacity: fade, z: 7 });
+      layer.line({ x1: this.width - 12, y1: y - 120 * progress, x2: 12, y2: y - 280 * progress, width: 5, color: fighter.secondary, opacity: fade, z: 7 });
+    } else if (effect.style === "drone-formation") {
+      [[-78, -120], [78, -120], [0, -230]].forEach(([dx, dy]) => layer.line({ x1: x, y1: y, x2: x + dx * (0.6 + progress * 0.4), y2: y + dy, width: 3, color: fighter.accent, opacity: fade, z: 7 }));
+    } else if (effect.style === "ghost-execute") {
+      combat.entities.enemies.filter((enemy) => enemy.marked).forEach((enemy) => layer.line({ x1: enemy.x - 14 + ox, y1: enemy.y - 14 + oy, x2: enemy.x + 14 + ox, y2: enemy.y + 14 + oy, width: 3, color: fighter.accent, opacity: fade, z: 8 }));
+    } else if (effect.style === "storm-pierce") {
+      layer.line({ x1: x, y1: y, x2: x, y2: 40, width: 5 + progress * 13, color: fighter.accent, opacity: fade, z: 7 });
+    } else if (effect.style === "phase-resonance") {
+      for (let index = 0; index < 3; index += 1) layer.circle({ x: x + Math.sin(progress * Math.PI * 4 + index) * 68, y: y - 90 - index * 52, radius: 10 + progress * 12, color: index % 2 ? fighter.secondary : fighter.accent, opacity: 0.05, border: fighter.accent, z: 7 });
+    } else if (effect.style === "graze-overclock") {
+      for (let index = 0; index < 5; index += 1) layer.line({ x1: x + (index - 2) * 18, y1: y, x2: x + (index - 2) * 30, y2: 70, width: 3, color: fighter.accent, opacity: fade, z: 7 });
+    } else if (effect.style === "armor-counter") {
+      layer.circle({ x, y: y - 90, radius: 28 + progress * 72, color: fighter.secondary, opacity: 0.08 * fade, border: fighter.accent, z: 7 });
+    } else if (effect.style === "hyper-chain") {
+      [-0.18, 0, 0.18].forEach((angle) => layer.line({ x1: x, y1: y, x2: x + Math.sin(angle) * this.height, y2: y - Math.cos(angle) * this.height, width: 5 + combat.formChain, color: fighter.accent, opacity: fade, z: 7 }));
+    }
   }
 
   drawAircraft(layer, x, y, radius, color, type, z) {
@@ -663,7 +952,7 @@ export class GameRenderer {
 
   drawPlayer(layer, combat, fighter, ox, oy) {
     const player = combat.player;
-    const size = combat.transformed ? 1.28 : 1;
+    const size = fighterCombatScale(combat.transformed);
     const x = player.x + ox;
     const y = player.y + oy;
     if (combat.barrierTime > 0) {
@@ -672,31 +961,8 @@ export class GameRenderer {
       layer.line({ x1: x, y1: y - 52, x2: x + 38, y2: y - 30, width: 5, color: "#efb632", opacity: 0.8, z: 8 });
     }
     if (player.shieldCharges > 0) layer.circle({ x, y, radius: 30 * size, color: fighter.accent, opacity: 0.05, border: fighter.accent, z: 7 });
-    const wingRatio = clamp((fighter.shape?.wing || 34) / 34, 0.82, 1.38);
-    const tailRatio = fighter.rig.profile === "specter" ? 0.7 : fighter.rig.profile === "skirmisher" ? 1.18 : 1;
-    const span = 30 * wingRatio * size;
-    const length = 29 * size;
-    const points = [
-      { x, y: y - length },
-      { x: x + 7 * size, y: y - 12 * size },
-      { x: x + span, y: y + 7 * size },
-      { x: x + 12 * size, y: y + 10 * size },
-      { x: x + 10 * tailRatio * size, y: y + 27 * size },
-      { x, y: y + 20 * size },
-      { x: x - 10 * tailRatio * size, y: y + 27 * size },
-      { x: x - 12 * size, y: y + 10 * size },
-      { x: x - span, y: y + 7 * size },
-      { x: x - 7 * size, y: y - 12 * size },
-    ];
-    layer.line({ x1: x - 7 * size, y1: y + 22 * size, x2: x - 7 * size, y2: y + 38 * size, width: 3.5 * size, color: fighter.accent, opacity: 0.42, z: 7 });
-    layer.line({ x1: x + 7 * size, y1: y + 22 * size, x2: x + 7 * size, y2: y + 38 * size, width: 3.5 * size, color: fighter.accent, opacity: 0.42, z: 7 });
-    layer.polygon({ points, color: combat.transformed ? fighter.accent : "#a9c7d2", border: fighter.accent, z: 8 });
-    layer.line({ x1: x - span * 0.78, y1: y + 5 * size, x2: x + span * 0.78, y2: y + 5 * size, width: 2.6 * size, color: fighter.accent, opacity: 0.82, z: 9 });
-    if (fighter.rig.profile === "commander" || fighter.rig.profile === "lancer" || fighter.rig.profile === "dualist") {
-      layer.line({ x1: x - 18 * size, y1: y - 8 * size, x2: x - 6 * size, y2: y - 2 * size, width: 3, color: fighter.secondary, z: 10 });
-      layer.line({ x1: x + 18 * size, y1: y - 8 * size, x2: x + 6 * size, y2: y - 2 * size, width: 3, color: fighter.secondary, z: 10 });
-    }
-    layer.circle({ x, y: y - 9 * size, radius: 4.8 * size, color: "#dffaff", border: fighter.accent, z: 10 });
+    const hull = this.drawFighterHull(layer, fighter, x, y, size, { transformed: combat.transformed, detail: this.quality === "low" ? "low" : "medium", glow: combat.transformed, z: 8 });
+    const span = hull.span;
     if (combat.transformed) {
       layer.line({ x1: x - span * 0.58, y1: y - 4, x2: x - span * 1.18, y2: y + 30, width: 6, color: fighter.secondary, z: 10 });
       layer.line({ x1: x + span * 0.58, y1: y - 4, x2: x + span * 1.18, y2: y + 30, width: 6, color: fighter.secondary, z: 10 });
@@ -725,7 +991,8 @@ export class GameRenderer {
   }
 
   drawCombatHud(layer, state, combat, fighter, layout) {
-    layer.rect({ ...layout.hud, color: COLORS.battleInk, opacity: 0.82, border: COLORS.line, z: 20 });
+    layer.rect({ ...layout.hud, color: COLORS.battleInk, opacity: 0.74, border: darkenHex(fighter.accent, 0.46), z: 20 });
+    layer.rect({ x: layout.hud.x, y: layout.hud.y, width: 3, height: layout.hud.height, color: fighter.accent, opacity: 0.9, z: 21 });
     layer.text(`${fighter.country} / ${fighter.shortName}`, { x: layout.hud.x + 9, y: layout.hud.y + 5, width: 92, height: 15, color: fighter.accent, fontSize: 8, weight: 900, z: 21 });
     layer.text(String(Math.round(combat.score)).padStart(6, "0"), { x: layout.hud.x + 9, y: layout.hud.y + 19, width: 90, height: 24, color: COLORS.ink, fontSize: 16, weight: 900, z: 21 });
     layer.text(`连击 ×${combat.combo}`, { x: layout.hud.x + 9, y: layout.hud.y + 41, width: 88, height: 14, color: combat.combo >= 8 ? COLORS.gold : COLORS.soft, fontSize: 8, weight: 900, z: 21 });
@@ -734,8 +1001,9 @@ export class GameRenderer {
     const healthWidth = Math.max(78, layout.pause.x - healthX - 8);
     const healthRatio = clamp(combat.player.health / combat.player.maxHealth, 0, 1);
     layer.text(`耐久 ${Math.ceil(combat.player.health)} / ${combat.player.maxHealth}`, { x: healthX, y: layout.hud.y + 5, width: healthWidth, height: 16, color: healthRatio <= 0.28 ? COLORS.red : COLORS.ink, fontSize: 8, weight: 900, z: 21 });
-    layer.rect({ x: healthX, y: layout.hud.y + 23, width: healthWidth, height: 6, color: COLORS.muted, z: 21 });
-    layer.rect({ x: healthX, y: layout.hud.y + 23, width: healthWidth * healthRatio, height: 6, color: healthRatio <= 0.28 ? COLORS.red : COLORS.green, z: 22 });
+    layer.rect({ x: healthX, y: layout.hud.y + 23, width: healthWidth, height: 5, color: COLORS.muted, z: 21 });
+    layer.rect({ x: healthX, y: layout.hud.y + 23, width: healthWidth * healthRatio, height: 5, color: healthRatio <= 0.28 ? COLORS.red : COLORS.green, z: 22 });
+    layer.line({ x1: healthX, y1: layout.hud.y + 30, x2: healthX + healthWidth * clamp(combat.player.shieldCharges / 3, 0, 1), y2: layout.hud.y + 30, width: 2, color: COLORS.blue, opacity: 0.72, z: 22 });
     layer.text(`护盾 ${combat.player.shieldCharges}  ·  核心 ${combat.transformCores}/3`, { x: healthX, y: layout.hud.y + 32, width: healthWidth, height: 14, color: COLORS.soft, fontSize: 8, weight: 800, z: 21 });
     const mode = combat.toolModes[combat.toolModeIndex];
     const marked = combat.entities.enemies.filter((enemy) => enemy.marked).length;
@@ -747,17 +1015,15 @@ export class GameRenderer {
     else if (state.fighterId === "f22") passiveStatus = `幽灵标记 ${marked}`;
     else if (state.fighterId === "typhoon") passiveStatus = `贯穿连击 ${combat.stormPierceHits || 0}`;
     else if (state.fighterId === "rafale") passiveStatus = `共振 ${Math.max(0, ...combat.entities.enemies.map((enemy) => enemy.resonance || 0))}/5`;
-    else if (state.fighterId === "gripen") passiveStatus = `擦弹 ${combat.grazeCount || 0}/6`;
+    else if (state.fighterId === "gripen") passiveStatus = `超频 ${combat.overclockStacks || 0}/12`;
     else if (state.fighterId === "su57") passiveStatus = `反击 ${combat.counterCharge || 0}/5`;
     const weaponText = mode.pattern === "laser" ? `${mode.name} · 热量 ${Math.round(combat.laserHeat)}%` : `${mode.name} · 武器 LV.${combat.weaponLevel}`;
     layer.text(`${weaponText} · ${passiveStatus}`, { x: healthX, y: layout.hud.y + 44, width: healthWidth, height: 13, color: fighter.accent, fontSize: 7, weight: 900, z: 21 });
     this.button(layer, layout.pause, "暂停", false, "surface", 24, state.uiPress === "pause");
 
     const labels = {
-      form: ["攻击", `${combat.toolModeIndex + 1}/${combat.toolModes.length}`],
       skill: ["技能", combat.skillCooldown > 0 ? combat.skillCooldown.toFixed(1) : "就绪"],
       transform: [combat.transformed ? "强袭" : "变身", combat.transformed ? combat.transformTime.toFixed(1) : `${combat.transformCores}/3`],
-      wingman: ["僚机", combat.wingmanTime > 0 ? combat.wingmanTime.toFixed(1) : combat.wingmanCooldown > 0 ? combat.wingmanCooldown.toFixed(1) : "就绪"],
     };
     Object.values(layout.actions).forEach((rect) => {
       const active = rect.id === "transform" && (combat.transformed || combat.transformCores >= 3);
@@ -768,6 +1034,11 @@ export class GameRenderer {
         accent: fighter.accent,
       });
     });
+    const weaponPressed = state.uiPress === "form";
+    layer.rect({ ...layout.weapon, color: weaponPressed ? COLORS.surfaceStrong : COLORS.battleInk, opacity: 0.8, border: darkenHex(fighter.accent, 0.2), z: 24 });
+    layer.rect({ x: layout.weapon.x, y: layout.weapon.y, width: 3, height: layout.weapon.height, color: fighter.accent, z: 25 });
+    layer.text(`武器 ${combat.toolModeIndex + 1}/${combat.toolModes.length}`, { x: layout.weapon.x + 8, y: layout.weapon.y + 5, width: layout.weapon.width - 16, height: 16, color: fighter.accent, fontSize: 8, weight: 900, z: 25 });
+    layer.text(mode.name, { x: layout.weapon.x + 8, y: layout.weapon.y + 22, width: layout.weapon.width - 16, height: 20, color: COLORS.ink, fontSize: 10, weight: 900, z: 25 });
 
     if (combat.boss) {
       const width = Math.min(this.width - 34, 380);
@@ -831,11 +1102,11 @@ export class GameRenderer {
     }
   }
 
-  drawToast(state, y) {
+  drawToast(state, y, layer = this.uiLayer) {
     if (!state.toast) return;
     const width = Math.min(this.width - 32, 340);
-    this.uiLayer.rect({ x: (this.width - width) / 2, y, width, height: 38, color: COLORS.battleInk, opacity: 0.92, border: COLORS.line, z: 40 });
-    this.uiLayer.text(state.toast.text, { x: (this.width - width) / 2 + 8, y: y + 4, width: width - 16, height: 30, color: COLORS.ink, fontSize: 10, align: "center", weight: 800, z: 41 });
+    layer.rect({ x: (this.width - width) / 2, y, width, height: 38, color: COLORS.battleInk, opacity: 0.92, border: COLORS.line, z: 40 });
+    layer.text(state.toast.text, { x: (this.width - width) / 2 + 8, y: y + 4, width: width - 16, height: 30, color: COLORS.ink, fontSize: 10, align: "center", weight: 800, z: 41 });
   }
 
   drawHangarGuide(state, layout, fighter) {
@@ -883,12 +1154,12 @@ export class GameRenderer {
     layer.text(status, { x: x - radius, y: y + 2, width: radius * 2, height: 16, color: active || primary ? COLORS.battleInk : COLORS.soft, fontSize: 8, align: "center", weight: 800, z: 25 });
   }
 
-  drawModal(modal) {
+  drawModal(modal, targetLayer = this.uiLayer) {
     if (modal.type === "map") {
-      this.drawMapModal(modal);
+      this.drawMapModal(modal, targetLayer);
       return;
     }
-    const layer = this.uiLayer;
+    const layer = targetLayer;
     layer.rect({ x: 0, y: 0, width: this.width, height: this.height, color: COLORS.paper, opacity: 0.72, z: 50 });
     const width = Math.min(this.width - 32, 420);
     const height = Math.min(this.height - 80, modal.height || 330);
@@ -917,8 +1188,8 @@ export class GameRenderer {
     }
   }
 
-  drawMapModal(modal) {
-    const layer = this.uiLayer;
+  drawMapModal(modal, targetLayer = this.uiLayer) {
+    const layer = targetLayer;
     layer.rect({ x: 0, y: 0, width: this.width, height: this.height, color: COLORS.paper, opacity: 0.76, z: 50 });
     const width = Math.min(this.width - 24, 430);
     const height = Math.min(this.height - 44, modal.height || 520);

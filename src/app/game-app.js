@@ -165,6 +165,12 @@ export class GameApp {
         this.activateAction(action.id);
         continue;
       }
+      if (contains(layout.weapon, point.x, point.y)) {
+        this.combatTouches.set(point.id, { ...point, role: "action:form" });
+        this.state.uiPress = "form";
+        this.activateAction("form");
+        continue;
+      }
       if (contains(layout.moveArea, point.x, point.y)) {
         this.combatTouches.set(point.id, { ...point, role: "move" });
         this.combatSystem?.movePlayer(point.x, point.y);
@@ -256,6 +262,7 @@ export class GameApp {
     if (touch.role.startsWith("preview:") && !touch.moved) {
       const previewId = touch.role.slice(8);
       this.state.hangar.previewMode = previewId;
+      if (previewId === "assault") this.state.hangar.weaponPreviewStartedAt = this.renderer.time;
       if (this.state.hangar.guideStage === 1) this.advanceHangarGuide(2);
       this.audio.play(previewId === "transform" ? "transform" : "uiConfirm");
       if (this.state.settings.haptics) this.runtime.vibrate("short");
@@ -327,7 +334,6 @@ export class GameApp {
     if (id === "form") this.combatSystem.cycleTool();
     else if (id === "skill") this.combatSystem.useSkill();
     else if (id === "transform") this.combatSystem.tryTransform();
-    else if (id === "wingman") this.combatSystem.summonWingman();
   }
 
   selectFighter(fighterId, direction = 0) {
@@ -335,6 +341,7 @@ export class GameApp {
     this.state.fighterId = fighterId;
     this.state.hangar.previewMode = "flight";
     this.state.hangar.weaponModeIndex = this.state.weaponModes[fighterId] || 0;
+    this.state.hangar.weaponPreviewStartedAt = this.renderer.time;
     this.state.hangar.modelRotation = 0;
     this.state.hangar.transition = this.state.settings.reducedMotion ? 0 : Math.sign(direction || 1);
     this.state.hangar.dragOffset = this.state.settings.reducedMotion ? 0 : -Math.sign(direction || 1) * 28;
@@ -352,6 +359,7 @@ export class GameApp {
     if (next === current) return;
     this.state.hangar.weaponModeIndex = next;
     this.state.weaponModes[this.state.fighterId] = next;
+    this.state.hangar.weaponPreviewStartedAt = this.renderer.time;
     this.audio.play("switchForm", { pattern: modes[next].pattern });
     if (this.state.settings.haptics) this.runtime.vibrate("short");
     this.persist();
@@ -372,10 +380,11 @@ export class GameApp {
       height: 420,
       lines: [
         "单指拖动战机，主武器会自动射击",
-        "攻击：循环切换 3 种弹道，X-10 为 10 种",
+        "点击左下武器条：循环切换弹道，X-10 为 10 种",
         "技能：释放当前战机专属主动技能",
         "变身：集齐 3 个红球后手动启动 10 秒",
-        "僚机：开战 15 秒后召唤专属支援编队",
+        "僚机：开战 15 秒后自动加入，无需额外按钮",
+        "紫色进化球：暂停战斗，从 3 项专属强化中选择 1 项",
         "蓝球升级弹道，绿球修复，金球展开全防屏障",
       ],
       options: [{ id: "close", label: "知道了" }],
@@ -481,6 +490,11 @@ export class GameApp {
     if (id.startsWith("airdrop:")) {
       this.combatSystem?.chooseAirdrop(id.slice(8));
       this.resumeCombat();
+      return;
+    }
+    if (id.startsWith("upgrade:")) {
+      this.combatSystem?.chooseUpgrade(id.slice(8));
+      this.resumeCombat();
     }
   }
 
@@ -575,6 +589,15 @@ export class GameApp {
         lines: event.upgraded ? ["护送成功，两种奖励均已强化"] : ["立即领取更安全，护送成功后奖励更强", "护送期间留在绿色范围并保护补给箱"],
         options,
       };
+    } else if (event.type === "upgradeChoice") {
+      this.pause("upgrade");
+      this.state.modal = {
+        type: "upgrade",
+        title: "选择专属进化",
+        height: 390,
+        lines: ["每次只选择一项，本局立即生效", ...event.choices.map((choice) => `${choice.name}：${choice.description}`)],
+        options: event.choices.map((choice) => ({ id: `upgrade:${choice.id}`, label: choice.name })),
+      };
     } else if (event.type === "result") this.showResult(event.result);
   }
 
@@ -618,7 +641,7 @@ export class GameApp {
 
   resumeFromBackground() {
     if (this.state.scene !== "combat" || !this.state.paused) return;
-    if (["mission", "airdrop"].includes(this.state.pauseReason) || this.state.modal?.type === "result") return;
+    if (["mission", "airdrop", "upgrade"].includes(this.state.pauseReason) || this.state.modal?.type === "result") return;
     this.state.modal = {
       type: "resume",
       title: "战斗已暂停",

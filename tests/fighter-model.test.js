@@ -35,6 +35,25 @@ describe("procedural flying robot transformation forms", () => {
     }
   });
 
+  test.each(FIGHTER_ORDER)("%s keeps firepower and tactical previews in aircraft posture", (fighterId) => {
+    const model = createFighterModel(FIGHTERS[fighterId]);
+    updateFighterModel(model, "assault", 1, 0, true);
+    expect(model.userData.previewProgress).toBe(0);
+    expect(model.userData.transformPhase.lockPhase).toBe(0);
+    updateFighterModel(model, "tactical", 2, 0, true);
+    expect(model.userData.previewProgress).toBe(0);
+    updateFighterModel(model, "transform", 3, 0, true);
+    expect(model.userData.previewProgress).toBe(1);
+  });
+
+  test.each(FIGHTER_ORDER)("%s exposes connected weapon hardpoints for the preview range", (fighterId) => {
+    const model = createFighterModel(FIGHTERS[fighterId]);
+    expect(Object.keys(model.userData.hardpoints).sort()).toEqual([
+      "center", "droneLeft", "droneRight", "leftBay", "leftWing", "nose", "rightBay", "rightWing",
+    ]);
+    Object.values(model.userData.hardpoints).forEach((point) => expect(point.parent).toBe(model));
+  });
+
   test("all nine fighters resolve to distinct aerial silhouettes", () => {
     const signatures = FIGHTER_ORDER.map((fighterId) => {
       const model = createFighterModel(FIGHTERS[fighterId]);

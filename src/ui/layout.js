@@ -25,14 +25,15 @@ export function computeHangarLayout(width, height, safeArea = {}, menuButton = n
     height: 44,
   }));
   const weaponGap = 6;
-  const weaponWidth = (width - pad * 2 - weaponGap * 2) / 3;
+  const weaponWidth = Math.max(68, Math.min(78, width * 0.21));
+  const weaponHeight = 58;
   const weaponCards = [-1, 0, 1].map((offset, index) => ({
     id: `weapon:${offset}`,
     offset,
-    x: pad + index * (weaponWidth + weaponGap),
-    y: previewY + 44,
+    x: pad,
+    y: previewY + 58 + index * (weaponHeight + weaponGap),
     width: weaponWidth,
-    height: 44,
+    height: weaponHeight,
   }));
   const cardGap = 8;
   const cardWidth = (width - pad * 2 - cardGap * 2) / 3;
@@ -91,22 +92,20 @@ export function computeCombatLayout(width, height, safeArea = {}, menuButton = n
   const safeBottom = Math.max(12, height - (safeArea.bottom || height));
   const pad = 12;
   const mainButton = Math.max(62, Math.min(70, width * 0.18));
-  const smallButton = Math.max(50, Math.min(56, width * 0.14));
   const gap = 8;
   const baseY = height - safeBottom - mainButton - 12;
   const hudY = Math.max(safeTop + 4, Number.isFinite(menuButton?.bottom) ? menuButton.bottom + 8 : 0);
   const moveY = hudY + 68;
   const skillX = width - pad - mainButton;
-  const transformY = baseY - smallButton - gap;
+  const transformSize = Math.max(58, Math.min(64, width * 0.165));
   return {
     hud: { x: pad, y: hudY, width: width - pad * 2, height: 58 },
     pause: { id: "pause", x: width - pad - 52, y: hudY + 7, width: 52, height: 44 },
     actions: {
-      form: { id: "form", x: skillX - smallButton - gap, y: transformY, width: smallButton, height: smallButton },
       skill: { id: "skill", x: skillX, y: baseY, width: mainButton, height: mainButton },
-      transform: { id: "transform", x: skillX, y: transformY, width: smallButton, height: smallButton },
-      wingman: { id: "wingman", x: skillX - smallButton - gap, y: baseY + mainButton - smallButton, width: smallButton, height: smallButton },
+      transform: { id: "transform", x: skillX - transformSize - gap, y: baseY + mainButton - transformSize, width: transformSize, height: transformSize },
     },
+    weapon: { id: "form", x: pad, y: baseY + mainButton - 50, width: Math.min(170, width - mainButton - transformSize - gap * 3 - pad * 2), height: 50 },
     moveArea: { x: 0, y: moveY, width, height: Math.max(0, baseY + mainButton - moveY) },
   };
 }

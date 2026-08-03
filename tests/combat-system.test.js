@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { FIGHTERS, FIGHTER_ORDER } from "../src/content/fighter-profiles.js";
 import { toolModeSpec } from "../src/content/gameplay-rules.js";
+import { fighterCombatScale, fighterWeaponOrigins } from "../src/content/fighter-geometry.js";
 import { CombatSystem, x10TransformStage } from "../src/core/combat-system.js";
 import { difficultyFromPerformance, ENEMY_ORDER } from "../src/core/enemy-config.js";
 import { createCombatState } from "../src/core/game-state.js";
@@ -88,6 +89,32 @@ describe("complete combat migration", () => {
     expect(maximumPlayerProjectiles).toBeGreaterThan(0);
     expect(maximumPlayerProjectiles).toBeLessThanOrEqual(18);
     expect(maximumEnemyProjectiles).toBeLessThanOrEqual(12);
+  });
+
+  test("main weapons launch from the aircraft hardpoints instead of the center", () => {
+    const { system, combat } = createSystem("j20");
+    combat.toolModeIndex = 0;
+    combat.fireTimer = 0;
+    system.updatePlayerWeapons(0);
+    const expected = fighterWeaponOrigins(FIGHTERS.j20, combat.player.x, combat.player.y, fighterCombatScale(false), "seeker", combat.entities.playerProjectiles.length);
+    expect(combat.entities.playerProjectiles.map(({ x, y }) => ({ x, y }))).toEqual(expected.map(({ x, y }) => ({ x, y })));
+    expect(new Set(combat.entities.playerProjectiles.map((bullet) => bullet.x)).size).toBeGreaterThan(1);
+  });
+
+  test("non-homing player weapons keep a straight velocity while seekers may turn", () => {
+    const straight = createSystem("rafale");
+    const wave = straight.system.spawnPlayerProjectile({ x: 180, y: 600, angle: 0.12, speed: 700, type: "wave", damage: 1 });
+    const initialVelocity = { vx: wave.vx, vy: wave.vy };
+    straight.system.updatePlayerProjectiles(0.1);
+    expect(wave.vx).toBeCloseTo(initialVelocity.vx, 8);
+    expect(wave.vy).toBeCloseTo(initialVelocity.vy, 8);
+
+    const homing = createSystem("j20");
+    const target = homing.system.spawnEnemy("elite", 280);
+    target.y = 260;
+    const seeker = homing.system.spawnPlayerProjectile({ x: 100, y: 600, angle: 0, speed: 700, type: "seeker", damage: 1 });
+    homing.system.updatePlayerProjectiles(0.1);
+    expect(seeker.vx).not.toBe(0);
   });
 
   test("laser damage is effectively frame-rate independent", () => {

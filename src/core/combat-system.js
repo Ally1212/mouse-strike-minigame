@@ -1,5 +1,7 @@
 import { createMapStructures, getBattleMap, pointInsideHazard, pointInsideStructure, resolveCircleFromStructure } from "../content/battle-maps.js";
 import { FIGHTERS, getWingmanSpec } from "../content/fighter-profiles.js";
+import { fighterAbility, fighterUpgradeChoices } from "../content/fighter-abilities.js";
+import { fighterCombatScale, fighterWeaponOrigins } from "../content/fighter-geometry.js";
 import {
   AIRDROP_ESCORT_DURATION,
   PARTICLE_LIMIT,
@@ -97,6 +99,7 @@ export class CombatSystem {
     this.state.player.y = this.height * 0.78;
     this.state.mapStructures = createMapStructures(this.mapId, this.width, this.height);
     this.state.notice = { title: "战机已接管", text: `${this.fighter.displayName} // 武器 LV.3`, time: 2.4 };
+    this.state.ability = fighterAbility(this.fighterId);
   }
 
   resize(width, height) {
@@ -166,6 +169,8 @@ export class CombatSystem {
     this.updateTimers(delta);
     this.updateTransform(delta);
     this.updateNuclear(delta);
+    this.updateSkillEffect(delta);
+    this.updateAutoWingman(delta);
 
     if (state.mission) {
       this.updatePlayerWeapons(delta);
@@ -269,6 +274,10 @@ export class CombatSystem {
     state.laserWarmup = 0;
     const mode = toolModeSpec(this.fighterId, state.toolModeIndex);
     state.formUses = (state.formUses || 0) + 1;
+    if (this.fighterId === "hypersonic") {
+      state.formChain = state.toolModeIndex === state.lastToolModeIndex ? state.formChain : Math.min(5, state.formChain + 1);
+      state.lastToolModeIndex = state.toolModeIndex;
+    }
     this.notify("攻击形态切换", mode.name, 1.6);
     this.play("switchForm", { pattern: mode.pattern });
     return mode;
@@ -312,6 +321,8 @@ export class CombatSystem {
     state.skillUses = (state.skillUses || 0) + 1;
     state.shake = 8;
     state.flash = 0.34;
+    const ability = fighterAbility(this.fighterId);
+    state.skillEffect = { style: ability.style, timer: 1.35, elapsed: 0, bursts: 0 };
     if (tactical.projectile === "nuclear") {
       state.nuclear = { warning: 0.62, timer: 1.25, x: state.player.x, y: state.player.y - 80 };
       this.notify("天穹核裁决", "核弹锁定，1.2 秒后引爆", 1.8);
@@ -319,34 +330,102 @@ export class CombatSystem {
       this.vibrate("heavy");
       return true;
     }
+    if (this.fighterId === "f22") state.player.invulnerable = Math.max(state.player.invulnerable, state.upgrades.includes("ghost-cloak") ? 1.8 : 1.2);
     if (["j35", "f22"].includes(this.fighterId)) {
       for (let index = state.entities.enemies.length - 1; index >= 0; index -= 1) {
         const enemy = state.entities.enemies[index];
         if (!enemy.marked) continue;
-        enemy.health -= this.fighterId === "f22" ? Math.max(enemy.health, 18) : 14;
+        const executeRatio = state.upgrades.includes("ghost-threshold") ? 0.48 : 0.36;
+        enemy.health -= this.fighterId === "f22" && enemy.health / enemy.maxHealth <= executeRatio ? Math.max(enemy.health, 18) : this.fighterId === "f22" ? 24 : 14;
         this.spawnParticles(enemy.x, enemy.y, 10, this.fighter.accent);
         if (enemy.health <= 0) this.killEnemy(index);
       }
     }
     const counterBonus = this.fighterId === "su57" ? 1 + (state.counterCharge || 0) * 0.22 : 1;
     state.counterCharge = this.fighterId === "su57" ? 0 : state.counterCharge;
-    const count = Math.max(1, tactical.count);
+    if (this.fighterId === "faxx") this.deploySkillWingmen();
+    const count = Math.max(1, tactical.count + (this.fighterId === "gripen" ? Math.min(8, state.overclockStacks || 0) : 0));
     const center = (count - 1) / 2;
+    const origins = fighterWeaponOrigins(this.fighter, state.player.x, state.player.y, fighterCombatScale(state.transformed), tactical.projectile, count);
     for (let index = 0; index < count; index += 1) {
-      const angle = (index - center) * Math.min(0.12, 1.35 / count);
+      let angle = (index - center) * Math.min(0.12, 1.35 / count);
+      if (this.fighterId === "j35") angle += index % 2 ? -0.16 : 0.16;
+      if (this.fighterId === "rafale") angle += Math.sin(index * Math.PI) * 0.12;
       this.spawnPlayerProjectile({
-        x: state.player.x,
-        y: state.player.y - 22,
+        x: origins[index].x,
+        y: origins[index].y,
         angle,
         speed: tactical.projectile === "rail" ? 1250 : tactical.projectile === "heavy" ? 680 : 820,
         type: tactical.projectile,
         damage: this.fighter.damage * (tactical.projectile === "heavy" ? 4.2 : 2.1) * counterBonus,
-        radius: tactical.projectile === "heavy" ? 8 : 5,
+        radius: tactical.projectile === "heavy" ? (state.upgrades.includes("armor-blast") ? 12 : 8) : this.fighterId === "typhoon" && state.upgrades.includes("storm-width") ? 8 : 5,
         pierce: tactical.projectile === "rail" ? 4 : 0,
+        modifier: ability.style,
       });
     }
+    if (this.fighterId === "gripen") state.overclockStacks = 0;
+    if (this.fighterId === "su57" && counterBonus >= 2 && state.upgrades.includes("armor-shield")) state.player.shieldCharges = Math.min(4, state.player.shieldCharges + 1);
     this.notify(tactical.name, `${count} 发战术齐射`, 1.8);
     this.play("skill", { fighterId: this.fighterId });
+    return true;
+  }
+
+  updateSkillEffect(dt) {
+    const effect = this.state.skillEffect;
+    if (!effect) return;
+    effect.elapsed += dt;
+    effect.timer -= dt;
+    if (effect.style === "phase-resonance" && effect.bursts < 3 && effect.elapsed >= 0.28 + effect.bursts * 0.28) {
+      const y = this.state.player.y - 150 - effect.bursts * 55;
+      this.splashDamage(this.state.player.x, y, this.fighter.damage * 4.2, 82 + effect.bursts * 12);
+      this.spawnParticles(this.state.player.x, y, 14, this.fighter.accent);
+      effect.bursts += 1;
+    }
+    if (effect.style === "drone-formation" && effect.bursts < 1 && effect.elapsed >= 0.8) {
+      this.splashDamage(this.state.player.x, this.state.player.y - 240, this.fighter.damage * 6, 110);
+      effect.bursts = 1;
+    }
+    if (effect.timer <= 0) this.state.skillEffect = null;
+  }
+
+  deploySkillWingmen() {
+    const bonus = this.state.upgrades.includes("falcon-drone") ? 1 : 0;
+    const spec = getWingmanSpec(this.fighterId);
+    for (let index = 0; index < 2 + bonus; index += 1) this.state.entities.allies.push({
+      id: `skill-wingman-${this.state.nextEntityId++}`,
+      source: "skill",
+      index,
+      count: 2 + bonus,
+      x: this.state.player.x,
+      y: this.state.player.y,
+      radius: 10,
+      health: 999,
+      maxHealth: 999,
+      duration: 4.5,
+      fireTimer: index * 0.08,
+      projectile: "drone",
+      rate: spec.rate * 0.75,
+      speed: spec.speed,
+      damage: spec.damage,
+      formation: "orbit",
+    });
+  }
+
+  updateAutoWingman(dt) {
+    const state = this.state;
+    state.autoWingmanTimer = Math.max(0, (state.autoWingmanTimer ?? 15) - dt);
+    if (state.autoWingmanTimer > 0 || state.elapsed < 15 || state.wingmanCooldown > 0 || state.wingmanTime > 0 || state.mission || state.boss) return;
+    if (this.summonWingman()) state.autoWingmanTimer = 28;
+  }
+
+  chooseUpgrade(upgradeId) {
+    const choice = fighterUpgradeChoices(this.fighterId, this.state.upgrades).find((item) => item.id === upgradeId)
+      || fighterAbility(this.fighterId).upgrades.find((item) => item.id === upgradeId);
+    if (!choice) return false;
+    if (!this.state.upgrades.includes(choice.id)) this.state.upgrades.push(choice.id);
+    this.state.pendingUpgrade = false;
+    this.notify("战机进化", `${choice.name}已生效`, 2.2);
+    this.play("pickup", { type: "evolution" });
     return true;
   }
 
@@ -410,28 +489,31 @@ export class CombatSystem {
     }
     const phase = combatPhase(state.elapsed);
     const phaseLimit = phase === "identify" ? 3 : phase === "learn" ? 4 : phase === "expand" ? 6 : 8;
-    const extra = Math.floor((state.weaponLevel - 1) / 2) + state.trajectoryLevel + assault.projectileBonus + stageBonus + (overdrive ? 2 : 0);
+    const upgradeBonus = state.upgrades.includes("dragon-wing") ? 1 : 0;
+    const extra = Math.floor((state.weaponLevel - 1) / 2) + state.trajectoryLevel + assault.projectileBonus + stageBonus + (overdrive ? 2 : 0) + upgradeBonus;
     const count = Math.min(phaseLimit + assault.projectileBonus + stageBonus, (mode.count || 1) + extra);
     const center = (count - 1) / 2;
-    const levelDamage = 1 + (state.weaponLevel - 1) * 0.12 + state.trajectoryLevel * 0.08;
+    const levelDamage = (1 + (state.weaponLevel - 1) * 0.12 + state.trajectoryLevel * 0.08) * (this.fighterId === "hypersonic" ? 1 + state.formChain * 0.05 : 1);
+    const origins = fighterWeaponOrigins(this.fighter, state.player.x, state.player.y, fighterCombatScale(state.transformed), mode.pattern, count);
     for (let index = 0; index < count; index += 1) {
-      const angle = (index - center) * (mode.spread || 0);
+      let angle = (index - center) * (mode.spread || 0);
+      if (this.fighterId === "j35" && mode.pattern === "rail" && state.upgrades.includes("falcon-cross")) angle += index % 2 ? -0.11 : 0.11;
       this.spawnPlayerProjectile({
-        x: state.player.x,
-        y: state.player.y - 22,
+        x: origins[index].x,
+        y: origins[index].y,
         angle,
         speed: mode.speed || 860,
         type: mode.pattern,
         damage: mode.damage * this.fighter.damage * levelDamage * stageDamage * (overdrive ? 1.35 : 1),
         radius: mode.pattern === "heavy" ? 8 : mode.pattern === "wave" ? 6 : 4.5,
         pierce: mode.pattern === "rail" ? 2 : 0,
-        waveAmp: mode.pattern === "wave" ? 22 + state.weaponLevel * 2 : 0,
+        modifier: fighterAbility(this.fighterId).style,
       });
     }
     this.play("fire", { pattern: mode.pattern });
   }
 
-  spawnPlayerProjectile({ x, y, angle = 0, speed = 800, type = "pulse", damage = 1, radius = 4, pierce = 0, waveAmp = 0 }) {
+  spawnPlayerProjectile({ x, y, angle = 0, speed = 800, type = "pulse", damage = 1, radius = 4, pierce = 0, modifier = "" }) {
     const budget = projectileBudget(this.state.elapsed, { transformed: this.state.transformed, boss: Boolean(this.state.boss) });
     if (this.state.entities.playerProjectiles.length >= budget.player) return null;
     return this.acquire("playerProjectiles", {
@@ -447,7 +529,8 @@ export class CombatSystem {
       type,
       damage,
       pierce,
-      waveAmp,
+      modifier,
+      baseVx: Math.sin(angle) * speed,
       age: 0,
       color: this.fighter.accent,
     });
@@ -476,7 +559,8 @@ export class CombatSystem {
     const mode = toolModeSpec(this.fighterId, state.toolModeIndex);
     const spec = laserModeSpec(mode);
     state.laserCooldown = Math.max(0, state.laserCooldown - dt);
-    if (state.laserWarmup <= 0 && state.laserBeams.length === 0) state.laserHeat = Math.max(0, state.laserHeat - spec.coolRate * dt);
+    const coolingBonus = state.upgrades.includes("hyper-cooling") ? 1.45 : 1;
+    if (state.laserWarmup <= 0 && state.laserBeams.length === 0) state.laserHeat = Math.max(0, state.laserHeat - spec.coolRate * coolingBonus * dt);
     if (state.laserWarmup > 0) {
       state.laserWarmup = Math.max(0, state.laserWarmup - dt);
       if (state.laserWarmup === 0 && state.pendingLaser) {
@@ -487,18 +571,20 @@ export class CombatSystem {
         const stageBeamBonus = x10Stage >= 0 ? [1, 2, 0, 3][x10Stage] : 0;
         const stageDamage = x10Stage >= 0 ? [1.25, 1.5, 1.85, 2.3][x10Stage] : 1;
         const count = Math.min(7, (pending.count || 1) + assault.laserBeamBonus + stageBeamBonus);
+        const origins = fighterWeaponOrigins(this.fighter, state.player.x, state.player.y, fighterCombatScale(state.transformed), "laser", count);
         for (let index = 0; index < count; index += 1) {
           state.laserBeams.push({
             id: state.nextEntityId++,
-            offsetX: (index - (count - 1) / 2) * 16,
+            offsetX: origins[index].x - state.player.x,
+            offsetY: origins[index].y - state.player.y,
             angle: (index - (count - 1) / 2) * (pending.spread || 0),
             width: pending.width,
             life: pending.duration,
             duration: pending.duration,
-            damagePerSecond: pending.damage * this.fighter.damage * stageDamage * (1 + state.trajectoryLevel * 0.08),
+            damagePerSecond: pending.damage * this.fighter.damage * stageDamage * (1 + state.trajectoryLevel * 0.08) * (this.fighterId === "hypersonic" ? 1 + state.formChain * 0.05 : 1),
             color: index % 2 ? this.fighter.secondary : this.fighter.accent,
             lethal: this.fighterId === "hypersonic",
-            reflect: Boolean(pending.reflect),
+            reflect: false,
           });
         }
         state.laserHeat = Math.min(100, state.laserHeat + pending.heat * assault.heatMultiplier);
@@ -516,12 +602,10 @@ export class CombatSystem {
   }
 
   laserSegments(beam) {
-    const origin = { x: this.state.player.x + beam.offsetX, y: this.state.player.y - 24 };
+    const origin = { x: this.state.player.x + beam.offsetX, y: this.state.player.y + (beam.offsetY ?? -24) };
     const angle = beam.angle || 0;
     const end = { x: origin.x + Math.sin(angle) * this.height, y: origin.y - Math.cos(angle) * this.height };
-    const segments = [{ x1: origin.x, y1: origin.y, x2: end.x, y2: end.y }];
-    if (beam.reflect) segments.push({ x1: end.x, y1: end.y, x2: clamp(this.width - end.x, 0, this.width), y2: this.height * 0.18 });
-    return segments;
+    return [{ x1: origin.x, y1: origin.y, x2: end.x, y2: end.y }];
   }
 
   damageWithLaser(beam, dt) {
@@ -532,6 +616,7 @@ export class CombatSystem {
       if (!segments.some((segment) => distanceToSegment(enemy.x, enemy.y, segment) <= enemy.radius + beam.width)) continue;
       enemy.health -= beam.lethal ? Math.max(enemy.health, beam.damagePerSecond * dt) : beam.damagePerSecond * dt;
       enemy.hitFlash = 0.08;
+      if (this.fighterId === "rafale" && state.upgrades.includes("resonance-arc")) this.splashDamage(enemy.x, enemy.y, beam.damagePerSecond * dt * 0.28, 72, enemy.id);
       if (enemy.health <= 0) this.killEnemy(index);
     }
     if (state.boss) {
@@ -569,6 +654,10 @@ export class CombatSystem {
     if (this.state.boss) {
       this.damageBoss(96, "left");
       this.damageBoss(96, "right");
+    }
+    if (this.state.upgrades.includes("hyper-array") && this.state.formChain >= 5) {
+      for (const angle of [-0.18, 0, 0.18]) this.spawnPlayerProjectile({ x: this.state.player.x, y: this.state.player.y - 30, angle, speed: 1500, type: "rail", damage: this.fighter.damage * 12, radius: 9, pierce: 8, modifier: "hyper-chain" });
+      this.state.formChain = 0;
     }
     this.state.flash = 1;
     this.state.shake = 22;
@@ -727,13 +816,19 @@ export class CombatSystem {
       bullet.x += bullet.vx * dt;
       bullet.y += bullet.vy * dt;
       const distance = Math.hypot(bullet.x - state.player.x, bullet.y - state.player.y);
-      if (!bullet.grazed && distance > bullet.radius + state.player.radius && distance <= bullet.radius + state.player.radius + 18) {
+      const grazeWindow = this.fighterId === "gripen" && state.upgrades.includes("graze-window") ? 25 : 18;
+      if (!bullet.grazed && distance > bullet.radius + state.player.radius && distance <= bullet.radius + state.player.radius + grazeWindow) {
         bullet.grazed = true;
         state.score += 25 * state.combo;
         state.combo = Math.min(99, state.combo + 1);
         state.comboTimer = 2.2;
         state.grazeCount = (state.grazeCount || 0) + 1;
+        if (this.fighterId === "gripen") state.overclockStacks = Math.min(12, (state.overclockStacks || 0) + 1);
         if (this.fighterId === "gripen" && state.grazeCount % 6 === 0) this.gainTransformCore(1, "擦弹超频");
+        if (this.fighterId === "gripen" && state.upgrades.includes("graze-retaliate")) {
+          const target = this.closestTarget(state.player.x, state.player.y, "pulse");
+          if (target) this.spawnPlayerProjectile({ x: state.player.x, y: state.player.y - 18, angle: Math.atan2(target.x - state.player.x, -(target.y - state.player.y)), speed: 1050, type: "pulse", damage: this.fighter.damage * 1.4, modifier: "graze-overclock" });
+        }
         this.play("graze");
       }
       const allyIndex = state.entities.allies.findIndex((ally) => circlesOverlap(bullet, ally));
@@ -893,6 +988,7 @@ export class CombatSystem {
     for (let index = state.entities.playerProjectiles.length - 1; index >= 0; index -= 1) {
       const bullet = state.entities.playerProjectiles[index];
       bullet.age += dt;
+      if (bullet.modifier === "graze-overclock" && state.overclockStacks > 0) bullet.vy = -Math.abs(bullet.speed * (1 + Math.min(0.35, state.overclockStacks * 0.035)));
       if (["seeker", "drone"].includes(bullet.type)) {
         const target = this.closestTarget(bullet.x, bullet.y, bullet.type);
         if (target) {
@@ -904,7 +1000,6 @@ export class CombatSystem {
       }
       bullet.x += bullet.vx * dt;
       bullet.y += bullet.vy * dt;
-      if (bullet.waveAmp) bullet.x = bullet.originX + Math.sin(bullet.age * 10 + bullet.id) * bullet.waveAmp + bullet.vx * bullet.age;
 
       if (this.hitMissionTarget(bullet)) {
         if (bullet.pierce > 0) bullet.pierce -= 1;
@@ -925,7 +1020,17 @@ export class CombatSystem {
         enemy.health -= damage;
         enemy.hitFlash = 0.06;
         this.hitFeedback(enemy.x, enemy.y, bullet.type === "heavy");
-        if (["seeker", "drone"].includes(bullet.type)) enemy.marked = true;
+        if (["seeker", "drone"].includes(bullet.type)) {
+          enemy.markStacks = (enemy.markStacks || 0) + 1;
+          const markThreshold = this.fighterId === "j35" && state.upgrades.includes("falcon-lock") ? 1 : 2;
+          enemy.marked = this.fighterId === "j35" ? enemy.markStacks >= markThreshold : true;
+        }
+        if (this.fighterId === "j20" && state.upgrades.includes("dragon-split") && ["seeker", "drone"].includes(bullet.type) && !bullet.split) {
+          for (const angle of [-0.16, 0.16]) {
+            const child = this.spawnPlayerProjectile({ x: enemy.x, y: enemy.y, angle, speed: 720, type: "pulse", damage: damage * 0.42, radius: 3, modifier: "command-lock" });
+            if (child) child.split = true;
+          }
+        }
         if (this.fighterId === "typhoon" && bullet.type === "rail") {
           bullet.stormHits = (bullet.stormHits || 0) + 1;
           if (bullet.stormHits >= 2) {
@@ -933,14 +1038,20 @@ export class CombatSystem {
             state.score += 20 * bullet.stormHits;
             state.combo = Math.min(99, state.combo + 1);
             state.comboTimer = 2.2;
+            if (state.upgrades.includes("storm-chain")) bullet.damage *= 1.18;
+            if (state.upgrades.includes("storm-refund")) state.skillCooldown = Math.max(0, state.skillCooldown - 0.28);
           }
         }
         if (this.fighterId === "rafale" && bullet.type === "wave") {
           enemy.resonance = (enemy.resonance || 0) + 1;
-          if (enemy.resonance >= 5) {
+          const threshold = state.upgrades.includes("resonance-fast") ? 4 : 5;
+          if (enemy.resonance >= threshold) {
             enemy.resonance = 0;
             this.splashDamage(enemy.x, enemy.y, damage * 0.8, 86, enemy.id);
             this.spawnParticles(enemy.x, enemy.y, 14, this.fighter.secondary);
+            if (state.upgrades.includes("resonance-chain")) state.entities.enemies.forEach((nearby) => {
+              if (nearby.id !== enemy.id && Math.hypot(nearby.x - enemy.x, nearby.y - enemy.y) <= 100) nearby.resonance = (nearby.resonance || 0) + 1;
+            });
           }
         }
         if (bullet.type === "heavy") this.splashDamage(enemy.x, enemy.y, damage * 0.55, 62, enemy.id);
@@ -1019,6 +1130,15 @@ export class CombatSystem {
     if (enemy.type === "splitter" && !forced) {
       for (const offset of [-24, 24]) this.spawnEnemy("scout", clamp(enemy.x + offset, 20, this.width - 20));
     }
+    if (!forced && enemy.marked && this.fighterId === "j20" && this.state.upgrades.includes("dragon-mark")) {
+      const target = this.state.entities.enemies.find((candidate, candidateIndex) => candidateIndex !== index && Math.hypot(candidate.x - enemy.x, candidate.y - enemy.y) <= 150);
+      if (target) target.marked = true;
+    }
+    if (!forced && enemy.marked && this.fighterId === "f22" && this.state.upgrades.includes("ghost-spread")) {
+      const target = this.state.entities.enemies.find((candidate, candidateIndex) => candidateIndex !== index && !candidate.marked);
+      if (target) target.marked = true;
+    }
+    if (!forced && enemy.marked && this.fighterId === "j35" && this.state.upgrades.includes("falcon-reset")) this.state.skillCooldown = Math.max(0, this.state.skillCooldown - 0.45);
     this.releaseAt("enemies", index);
     this.state.shake = Math.max(this.state.shake, enemy.type === "elite" ? 7 : 3);
     this.play("kill", { type: enemy.type });
@@ -1077,6 +1197,8 @@ export class CombatSystem {
     else if (type === "evolution") {
       state.evolution += 1;
       if (state.evolution % 2 === 0) state.weaponLevel = Math.min(5, state.weaponLevel + 1);
+      state.pendingUpgrade = true;
+      this.signal("upgradeChoice", { choices: fighterUpgradeChoices(this.fighterId, state.upgrades) });
     } else if (type === "trajectory") {
       if (state.weaponLevel >= 5) state.trajectoryLevel = 0;
       else state.trajectoryLevel += 1;
@@ -1152,14 +1274,16 @@ export class CombatSystem {
         ally.fireTimer = ally.rate;
         const copiedMode = this.fighterId === "faxx" ? toolModeSpec(this.fighterId, this.state.toolModeIndex) : null;
         const projectile = copiedMode?.pattern || ally.projectile;
+        const focus = this.fighterId === "faxx" && this.state.upgrades.includes("falcon-focus") ? 1.28 : 1;
         this.spawnPlayerProjectile({
           x: ally.x,
           y: ally.y - 12,
           speed: copiedMode?.speed || ally.speed,
           type: projectile,
-          damage: ally.damage * (copiedMode?.damage || 1),
+          damage: ally.damage * (copiedMode?.damage || 1) * focus,
           radius: projectile === "heavy" ? 6 : 3.8,
           pierce: projectile === "rail" ? 1 : 0,
+          modifier: this.fighterId === "faxx" && this.state.upgrades.includes("falcon-copy") ? "drone-formation" : "",
         });
       }
       if (ally.health <= 0 || ally.duration <= 0) allies.splice(index, 1);
@@ -1181,6 +1305,7 @@ export class CombatSystem {
       this.notify("护盾破裂", `剩余 ${state.player.shieldCharges} 层`, 1.2);
       this.play("shieldBreak");
       this.vibrate("light");
+      if (this.fighterId === "su57" && state.upgrades.includes("armor-charge")) state.counterCharge = Math.min(5, (state.counterCharge || 0) + 1);
       return false;
     }
     const armorMultiplier = state.transformed ? 0.55 : 1 - this.fighter.stats.armor / 500;
@@ -1194,6 +1319,8 @@ export class CombatSystem {
     this.play("playerHit");
     this.vibrate("heavy");
     if (this.fighterId === "su57") state.counterCharge = Math.min(5, (state.counterCharge || 0) + 1);
+    if (this.fighterId === "gripen") state.overclockStacks = Math.max(0, (state.overclockStacks || 0) - (state.upgrades.includes("graze-keep") ? 2 : 4));
+    if (this.fighterId === "gripen") state.overclockStacks = Math.max(0, (state.overclockStacks || 0) - (state.upgrades.includes("graze-keep") ? 2 : 4));
     if (state.player.health <= 0) this.endCombat();
     return true;
   }

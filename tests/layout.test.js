@@ -12,6 +12,9 @@ describe("touch layout", () => {
     const hangar = computeHangarLayout(375, 812, safeArea);
     [hangar.sound, hangar.map, hangar.start, hangar.fighterPrev, hangar.fighterNext, hangar.fighterProgress, ...hangar.previewButtons, ...hangar.weaponCards, ...hangar.fighterCards].forEach(expectTouchable);
     expect(hangar.weaponCards).toHaveLength(3);
+    expect(new Set(hangar.weaponCards.map((card) => card.x)).size).toBe(1);
+    expect(hangar.weaponCards[0].y).toBeLessThan(hangar.weaponCards[1].y);
+    expect(hangar.weaponCards[1].y).toBeLessThan(hangar.weaponCards[2].y);
     expect(hangar.fighterCards).toHaveLength(3);
     expect(hangar.fighterCards[0].x).toBeGreaterThanOrEqual(hangar.pad);
     expect(hangar.fighterCards[2].x + hangar.fighterCards[2].width).toBeLessThanOrEqual(375 - hangar.pad);
@@ -19,7 +22,8 @@ describe("touch layout", () => {
 
     const menuButton = { left: 278, top: 48, right: 365, bottom: 80, width: 87, height: 32 };
     const combat = computeCombatLayout(375, 812, safeArea, menuButton);
-    [combat.pause, ...Object.values(combat.actions)].forEach(expectTouchable);
+    [combat.pause, combat.weapon, ...Object.values(combat.actions)].forEach(expectTouchable);
+    expect(Object.keys(combat.actions)).toEqual(["skill", "transform"]);
     expect(combat.pause.y).toBeGreaterThan(menuButton.bottom);
     expect(combat.hud.y).toBeGreaterThan(menuButton.bottom);
     Object.values(combat.actions).forEach((rect) => {

@@ -57,7 +57,7 @@ export const FIGHTERS = {
       { id: "gravity-shell", name: "06 重力炮阵", pattern: "heavy", count: 3, spread: 0.085, speed: 690, damage: 3.4, rate: 1.22 },
       { id: "photon-drone", name: "07 光子无人翼", pattern: "drone", count: 7, spread: 0.1, speed: 900, damage: 1.5, rate: 0.72 },
       { id: "cross-laser", name: "08 十字处决光", pattern: "laser", count: 3, spread: 0.052, damage: 8.8, rate: 0.88, warmup: 0.14, duration: 0.72, heat: 29, coolRate: 35, overheatCooldown: 1, width: 6.4, cycle: 1.02, laserStyle: "cross" },
-      { id: "prism-fan", name: "09 棱镜审判幕", pattern: "laser", count: 3, spread: 0.15, damage: 7.6, rate: 0.78, warmup: 0.2, duration: 1.02, heat: 35, coolRate: 32, overheatCooldown: 1.2, width: 6.8, cycle: 1.24, laserStyle: "reflect", reflect: true },
+      { id: "prism-fan", name: "09 棱镜审判幕", pattern: "laser", count: 3, spread: 0.15, damage: 7.6, rate: 0.78, warmup: 0.2, duration: 1.02, heat: 35, coolRate: 32, overheatCooldown: 1.2, width: 6.8, cycle: 1.24, laserStyle: "fan" },
       { id: "omega-array", name: "10 终焉英雄矩阵", pattern: "laser", count: 3, spread: 0.075, damage: 12.8, rate: 0.9, warmup: 0.28, duration: 1.28, heat: 46, coolRate: 29, overheatCooldown: 1.45, width: 11.5, cycle: 1.48, laserStyle: "omega" },
     ],
     shape: { ...sharedShape, nose: 43, body: 35, wing: 47, wingY: -2, rearWingY: 21, tail: 12, canard: 15, tailless: false },
@@ -377,7 +377,7 @@ export const FIGHTERS = {
     tactical: { id: "dual-orbit", name: "双相回旋", cooldown: 5.35, projectile: "wave", count: 12 },
     toolModes: [
       { id: "dual-wave", name: "双相波炮", pattern: "wave", count: 2, spread: 0.05, speed: 730, damage: 1.28, rate: 0.96 },
-      { id: "arc-refraction", name: "弧形折射激光", pattern: "laser", count: 2, spread: 0.13, damage: 4.6, rate: 1.08, warmup: 0.3, duration: 0.9, heat: 38, coolRate: 29, overheatCooldown: 1.35, width: 4.6, cycle: 1.46, laserStyle: "reflect", reflect: true },
+      { id: "arc-refraction", name: "双轨扩散激光", pattern: "laser", count: 2, spread: 0.13, damage: 4.6, rate: 1.08, warmup: 0.3, duration: 0.9, heat: 38, coolRate: 29, overheatCooldown: 1.35, width: 4.6, cycle: 1.46, laserStyle: "fan" },
       { id: "phase-needle", name: "相位针炮", pattern: "rail", count: 2, spread: 0.035, speed: 1080, damage: 1.56, rate: 1.16 },
     ],
     shape: { ...sharedShape, nose: 31, body: 27, wing: 33, wingY: 6, rearWingY: 18, tail: 12, canard: 11, twinTail: false },

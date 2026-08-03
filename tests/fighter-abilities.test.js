@@ -1,0 +1,53 @@
+import { describe, expect, test } from "vitest";
+import { FIGHTER_ORDER, FIGHTERS } from "../src/content/fighter-profiles.js";
+import { fighterAbility, fighterUpgradeChoices } from "../src/content/fighter-abilities.js";
+import { CombatSystem } from "../src/core/combat-system.js";
+import { createCombatState } from "../src/core/game-state.js";
+
+function createSystem(fighterId) {
+  const combat = createCombatState(FIGHTERS[fighterId]);
+  const events = [];
+  const system = new CombatSystem({ combat, fighterId, mapId: "usa", width: 375, height: 812, emit: (event) => events.push(event) });
+  return { system, combat, events };
+}
+
+describe("fighter identities and progression", () => {
+  test("all nine fighters have unique combat styles, three skill phases and three upgrades", () => {
+    const abilities = FIGHTER_ORDER.map(fighterAbility);
+    expect(new Set(abilities.map((ability) => ability.style))).toHaveLength(9);
+    abilities.forEach((ability) => {
+      expect(ability.skill.phases).toHaveLength(3);
+      expect(ability.upgrades).toHaveLength(3);
+      expect(new Set(ability.upgrades.map((item) => item.id)).size).toBe(3);
+    });
+  });
+
+  test("skills start their fighter-specific effect instead of a shared anonymous volley", () => {
+    for (const fighterId of FIGHTER_ORDER) {
+      const { system, combat } = createSystem(fighterId);
+      expect(system.useSkill()).toBe(true);
+      expect(combat.skillEffect.style).toBe(fighterAbility(fighterId).style);
+      expect(combat.skillCooldown).toBe(FIGHTERS[fighterId].tactical.cooldown);
+    }
+  });
+
+  test("evolution pickups offer three fighter-specific choices and apply one safely", () => {
+    const { system, combat, events } = createSystem("j20");
+    system.collectPickup("evolution");
+    const event = events.find((item) => item.type === "upgradeChoice");
+    expect(event.choices).toEqual(fighterUpgradeChoices("j20", []));
+    expect(combat.pendingUpgrade).toBe(true);
+    expect(system.chooseUpgrade(event.choices[0].id)).toBe(true);
+    expect(combat.upgrades).toContain(event.choices[0].id);
+    expect(combat.pendingUpgrade).toBe(false);
+  });
+
+  test("wingmen automatically deploy after arrival without a dedicated action button", () => {
+    const { system, combat } = createSystem("faxx");
+    combat.elapsed = 15;
+    combat.autoWingmanTimer = 0;
+    system.updateAutoWingman(0);
+    expect(combat.entities.allies.length).toBeGreaterThan(0);
+    expect(combat.wingmanCooldown).toBeGreaterThan(0);
+  });
+});
