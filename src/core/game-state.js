@@ -7,6 +7,11 @@ export function createInitialState(saved = {}) {
   const fighterId = FIGHTERS[saved.fighterId] ? saved.fighterId : "j20";
   const mapId = getBattleMap(saved.mapId)?.id || "usa";
   const fighter = getFighterProfile(fighterId);
+  const weaponModes = Object.fromEntries(Object.keys(FIGHTERS).map((id) => {
+    const count = getToolModes(id).length;
+    const value = Math.trunc(Number(saved.weaponModes?.[id]) || 0);
+    return [id, ((value % count) + count) % count];
+  }));
   return {
     scene: "loading",
     paused: false,
@@ -29,9 +34,11 @@ export function createInitialState(saved = {}) {
       dragOffset: 0,
       dragVelocity: 0,
       transition: 0,
+      weaponModeIndex: weaponModes[fighterId],
       guideStage: Math.max(0, Math.min(3, Number(saved.hangarGuideStage) || 0)),
     },
-    combat: createCombatState(fighter),
+    weaponModes,
+    combat: createCombatState(fighter, weaponModes[fighterId]),
     modal: null,
     toast: null,
     uiPress: null,
@@ -45,7 +52,8 @@ export function createInitialState(saved = {}) {
   };
 }
 
-export function createCombatState(fighter) {
+export function createCombatState(fighter, toolModeIndex = 0) {
+  const normalizedToolMode = ((Math.trunc(Number(toolModeIndex) || 0) % fighter.toolModes.length) + fighter.toolModes.length) % fighter.toolModes.length;
   return {
     running: true,
     ended: false,
@@ -62,7 +70,7 @@ export function createCombatState(fighter) {
     transformed: false,
     transformTime: 0,
     transformStage: 0,
-    toolModeIndex: 0,
+    toolModeIndex: normalizedToolMode,
     skillCooldown: 0,
     wingmanCooldown: 0,
     wingmanTime: 0,
@@ -138,6 +146,7 @@ export function serializeSettings(state) {
     highScore: state.stats.highScore,
     fighterBest: state.stats.fighterBest,
     hangarGuideStage: state.hangar.guideStage,
+    weaponModes: state.weaponModes,
     consecutiveDeaths: state.stats.consecutiveDeaths,
     clearStreak: state.stats.clearStreak,
   };

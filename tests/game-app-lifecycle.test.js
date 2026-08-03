@@ -99,6 +99,7 @@ describe("hangar fighter navigation", () => {
       modal: null,
       uiPress: null,
       hangar: { previewMode: "flight", modelRotation: 0, dragOffset: 0 },
+      weaponModes: Object.fromEntries(FIGHTER_ORDER.map((id) => [id, 0])),
       settings: { haptics: false, reducedMotion: false },
     };
     app.runtime = {
@@ -118,6 +119,7 @@ describe("hangar fighter navigation", () => {
     app.state.hangar.guideStage = 0;
     app.state.hangar.dragVelocity = 0;
     app.state.hangar.transition = 0;
+    app.state.hangar.weaponModeIndex = 0;
     return app;
   }
 
@@ -180,5 +182,16 @@ describe("hangar fighter navigation", () => {
     expect(app.persist).toHaveBeenCalledTimes(1);
     app.advanceHangarGuide(1);
     expect(app.persist).toHaveBeenCalledTimes(1);
+  });
+
+  test("selects and persists the previous or next hangar weapon", () => {
+    const app = createHangarHarness();
+    app.state.hangar.previewMode = "assault";
+    app.selectHangarWeapon(1);
+    expect(app.state.hangar.weaponModeIndex).toBe(1);
+    expect(app.state.weaponModes.j20).toBe(1);
+    expect(app.audio.play).toHaveBeenCalledWith("switchForm", { pattern: "laser" });
+    app.selectHangarWeapon(-1);
+    expect(app.state.hangar.weaponModeIndex).toBe(0);
   });
 });

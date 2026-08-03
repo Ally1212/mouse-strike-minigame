@@ -26,6 +26,7 @@ describe("mini game foundation", () => {
       reducedMotion: true,
       tutorialSeen: true,
       hangarGuideStage: 2,
+      weaponModes: { rafale: 2, hypersonic: 9 },
       highScore: 4200,
       x10Unlocked: true,
     });
@@ -33,11 +34,12 @@ describe("mini game foundation", () => {
       fighterId: "rafale",
       mapId: "arctic",
       settings: { volume: 0.35, muted: true, quality: "low", haptics: false, effects: "reduced", reducedMotion: true, tutorialSeen: true },
-      hangar: { guideStage: 2 },
+      hangar: { guideStage: 2, weaponModeIndex: 2 },
+      weaponModes: { rafale: 2, hypersonic: 9 },
       stats: { highScore: 4200 },
     });
     expect(serializeSettings(state)).not.toHaveProperty("x10Unlocked");
-    expect(serializeSettings(state)).toMatchObject({ reducedMotion: true, hangarGuideStage: 2 });
+    expect(serializeSettings(state)).toMatchObject({ reducedMotion: true, hangarGuideStage: 2, weaponModes: { rafale: 2, hypersonic: 9 } });
   });
 
   test("never persists the X-10 concept code state", () => {

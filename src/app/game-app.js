@@ -105,10 +105,14 @@ export class GameApp {
           this.runtime.viewport.menuButton,
         );
         const preview = layout.previewButtons.find((rect) => contains(rect, point.x, point.y));
+        const weaponCard = this.state.hangar.previewMode === "assault"
+          ? layout.weaponCards.find((rect) => contains(rect, point.x, point.y))
+          : null;
         const card = layout.fighterCards.find((rect) => contains(rect, point.x, point.y));
         const progress = contains(layout.fighterProgress, point.x, point.y);
         const role = this.state.modal ? "modal"
-          : preview ? `preview:${preview.id}`
+          : weaponCard ? `weapon:${weaponCard.offset}`
+            : preview ? `preview:${preview.id}`
             : contains(layout.sound, point.x, point.y) ? "sound"
                 : contains(layout.map, point.x, point.y) ? "map"
                   : contains(layout.start, point.x, point.y) ? "start"
@@ -131,7 +135,7 @@ export class GameApp {
           lastTime: this.runtime.now(),
           velocityX: 0,
         };
-        this.state.uiPress = card ? `fighter:${card.offset}` : role;
+        this.state.uiPress = weaponCard ? `weapon:${weaponCard.offset}` : card ? `fighter:${card.offset}` : role;
       }
       return;
     }
@@ -257,6 +261,10 @@ export class GameApp {
       if (this.state.settings.haptics) this.runtime.vibrate("short");
       return;
     }
+    if (touch.role.startsWith("weapon:") && !touch.moved) {
+      this.selectHangarWeapon(Number(touch.role.slice(7)) || 0);
+      return;
+    }
     if (touch.role === "sound" && !touch.moved) {
       this.openSettings();
       return;
@@ -326,6 +334,7 @@ export class GameApp {
     if (fighterId === this.state.fighterId) return;
     this.state.fighterId = fighterId;
     this.state.hangar.previewMode = "flight";
+    this.state.hangar.weaponModeIndex = this.state.weaponModes[fighterId] || 0;
     this.state.hangar.modelRotation = 0;
     this.state.hangar.transition = this.state.settings.reducedMotion ? 0 : Math.sign(direction || 1);
     this.state.hangar.dragOffset = this.state.settings.reducedMotion ? 0 : -Math.sign(direction || 1) * 28;
@@ -333,6 +342,18 @@ export class GameApp {
     this.audio.play("uiMove");
     if (this.state.settings.haptics) this.runtime.vibrate("short");
     if (this.state.hangar.guideStage === 0) this.advanceHangarGuide(1);
+    this.persist();
+  }
+
+  selectHangarWeapon(offset) {
+    const modes = FIGHTERS[this.state.fighterId].toolModes;
+    const current = this.state.hangar.weaponModeIndex || 0;
+    const next = ((current + Math.trunc(offset) % modes.length) + modes.length) % modes.length;
+    if (next === current) return;
+    this.state.hangar.weaponModeIndex = next;
+    this.state.weaponModes[this.state.fighterId] = next;
+    this.audio.play("switchForm", { pattern: modes[next].pattern });
+    if (this.state.settings.haptics) this.runtime.vibrate("short");
     this.persist();
   }
 
@@ -501,7 +522,7 @@ export class GameApp {
 
   startCombat() {
     const fighter = FIGHTERS[this.state.fighterId];
-    this.state.combat = createCombatState(fighter);
+    this.state.combat = createCombatState(fighter, this.state.hangar.weaponModeIndex);
     this.combatSystem = new CombatSystem({
       combat: this.state.combat,
       fighterId: this.state.fighterId,

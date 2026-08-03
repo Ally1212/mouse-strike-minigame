@@ -131,6 +131,35 @@ test("机库支持拖拽换机、分页直达并保存引导进度", async ({ pa
   }))).toEqual(selectedAfterJump);
 });
 
+test("机库四模块展示真实参数并保存默认攻击", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForFunction(() => globalThis.__mouseStrikeMiniGame?.state?.scene === "hangar");
+  const hangar = await getLayout(page, "hangar");
+  const visibleLabels = () => page.evaluate(() => globalThis.__mouseStrikeMiniGame.app.renderer.uiLayer.texts
+    .filter((slot) => slot.sprite.visible)
+    .map((slot) => slot.key.split("|")[0]));
+
+  await clickRect(page, hangar.previewButtons.find((rect) => rect.id === "transform"));
+  await expect.poll(visibleLabels).toEqual(expect.arrayContaining(["变形 · 威龙天将形态", "需要 3 个核心 · 强袭 10 秒 · 变形评分 92"]));
+
+  await clickRect(page, hangar.previewButtons.find((rect) => rect.id === "tactical"));
+  await expect.poll(visibleLabels).toEqual(expect.arrayContaining(["技能 · 威龙天罚", "冷却 5.2 秒 · 18 发 · 战术评分 100"]));
+
+  await clickRect(page, hangar.previewButtons.find((rect) => rect.id === "assault"));
+  await expect.poll(visibleLabels).toEqual(expect.arrayContaining(["追踪 · 龙牙追踪弹", "理论DPS"]));
+  await clickRect(page, hangar.weaponCards.find((rect) => rect.offset === 1));
+  expect(await page.evaluate(() => globalThis.__mouseStrikeMiniGame.state.hangar.weaponModeIndex)).toBe(1);
+  await expect.poll(visibleLabels).toEqual(expect.arrayContaining(["激光 · 龙脊贯穿激光", "总DPS", "完整照射"]));
+
+  await page.reload();
+  await page.waitForFunction(() => globalThis.__mouseStrikeMiniGame?.state?.scene === "hangar");
+  expect(await page.evaluate(() => globalThis.__mouseStrikeMiniGame.state.hangar.weaponModeIndex)).toBe(1);
+  await page.evaluate(() => globalThis.__mouseStrikeMiniGame.app.startCombat());
+  expect(await page.evaluate(() => globalThis.__mouseStrikeMiniGame.state.combat.toolModeIndex)).toBe(1);
+});
+
 test("X-10 错误暗号被拒绝，正确暗号每次出击都重新验证", async ({ page }) => {
   await openGame(page);
   await page.evaluate(() => globalThis.__mouseStrikeMiniGame.app.selectFighter("hypersonic"));

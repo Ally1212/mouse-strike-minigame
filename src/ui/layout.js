@@ -24,6 +24,16 @@ export function computeHangarLayout(width, height, safeArea = {}, menuButton = n
     width: (width - pad * 2) / 4,
     height: 44,
   }));
+  const weaponGap = 6;
+  const weaponWidth = (width - pad * 2 - weaponGap * 2) / 3;
+  const weaponCards = [-1, 0, 1].map((offset, index) => ({
+    id: `weapon:${offset}`,
+    offset,
+    x: pad + index * (weaponWidth + weaponGap),
+    y: previewY + 44,
+    width: weaponWidth,
+    height: 44,
+  }));
   const cardGap = 8;
   const cardWidth = (width - pad * 2 - cardGap * 2) / 3;
   const fighterCards = [-1, 0, 1].map((offset, index) => ({
@@ -68,6 +78,7 @@ export function computeHangarLayout(width, height, safeArea = {}, menuButton = n
     fighterNext,
     fighterProgress,
     previewButtons,
+    weaponCards,
     sound,
     footer: { x: pad, y: footerY, width: width - pad * 2, height: footerHeight },
     map: { id: "map", x: pad, y: footerY + 6, width: mapWidth, height: 50 },

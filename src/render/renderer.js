@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { BATTLE_MAPS } from "../content/battle-maps.js";
 import { FIGHTER_ORDER, FIGHTERS } from "../content/fighter-profiles.js";
 import { MINI_MISSIONS } from "../content/mini-missions.js";
+import { normalizeWeaponIndex, weaponMetrics } from "../content/weapon-metrics.js";
 import { computeCombatLayout, computeHangarLayout } from "../ui/layout.js";
 import { createFighterModel, updateFighterModel } from "./fighter-model.js";
 import { ImmediateLayer } from "./immediate-layer.js";
@@ -211,6 +212,10 @@ export class GameRenderer {
     [62, 100, 142].forEach((radius, index) => layer.circle({ x: radarX, y: radarY, radius, color: fighter.accent, opacity: 0.018, border: index === 1 ? COLORS.line : null, z: -1 }));
     layer.line({ x1: layout.pad, y1: layout.preview.y + 4, x2: layout.pad + 46, y2: layout.preview.y + 4, width: 2, color: COLORS.blue, opacity: 0.74, z: 2 });
     layer.line({ x1: this.width - layout.pad - 46, y1: layout.preview.y + 4, x2: this.width - layout.pad, y2: layout.preview.y + 4, width: 2, color: COLORS.blue, opacity: 0.74, z: 2 });
+    if (state.hangar.previewMode === "assault") {
+      this.drawHangarWeaponDemo(state, layout, fighter);
+      this.drawHangarWeaponSelector(state, layout, fighter);
+    }
     const previewLabels = { flight: "飞行\n巡航姿态", transform: "变形\n机甲形态", assault: "火力\n强袭演示", tactical: "技能\n专属战术" };
     layout.previewButtons.forEach((button) => this.button(
       layer,
@@ -222,25 +227,7 @@ export class GameRenderer {
       state.uiPress === `preview:${button.id}`,
     ));
 
-    layer.rect({ ...layout.info, color: COLORS.surface, opacity: 0.9, border: COLORS.line, z: 1 });
-    layer.rect({ x: layout.info.x, y: layout.info.y, width: 4, height: layout.info.height, color: fighter.accent, z: 2 });
-    const compactInfo = layout.info.height < 106;
-    layer.text(`${fighter.country} · ${fighter.role.split("/")[0].trim()}`, { x: layout.info.x + 14, y: layout.info.y + 8, width: layout.info.width - 28, height: 18, color: fighter.accent, fontSize: 9, weight: 900 });
-    layer.text(fighter.displayName, { x: layout.info.x + 14, y: layout.info.y + 27, width: layout.info.width - 28, height: compactInfo ? 29 : 35, color: COLORS.ink, fontSize: compactInfo ? 20 : 23, weight: 900 });
-    if (!compactInfo) layer.text(`${fighter.passiveName} · ${fighter.tactical.name}`, { x: layout.info.x + 14, y: layout.info.y + 60, width: layout.info.width - 28, height: 20, color: COLORS.soft, fontSize: 10, weight: 800 });
-    const blend = state.settings.reducedMotion ? 1 : Math.min(1, (this.frameDelta || 0.016) * 8);
-    this.displayStats.mobility += (fighter.stats.mobility - this.displayStats.mobility) * blend;
-    this.displayStats.firepower += (fighter.stats.firepower - this.displayStats.firepower) * blend;
-    this.displayStats.armor += (fighter.stats.armor - this.displayStats.armor) * blend;
-    const stats = [["机动", this.displayStats.mobility], ["火力", this.displayStats.firepower], ["耐久", this.displayStats.armor]];
-    const statY = layout.info.y + layout.info.height - 14;
-    stats.forEach(([name, value], index) => {
-      const slot = (layout.info.width - 28) / 3;
-      const x = layout.info.x + 14 + index * slot;
-      layer.text(`${name} ${Math.round(value)}`, { x, y: statY - 15, width: slot - 8, height: 14, color: COLORS.soft, fontSize: 8, weight: 800 });
-      layer.rect({ x, y: statY, width: slot - 10, height: 3, color: COLORS.muted, z: 2 });
-      layer.rect({ x, y: statY, width: (slot - 10) * value / 100, height: 3, color: fighter.accent, z: 3 });
-    });
+    this.drawHangarInfo(state, layout, fighter);
 
     const selectedIndex = FIGHTER_ORDER.indexOf(state.fighterId);
     const dragOffset = state.hangar.dragOffset || 0;
@@ -274,6 +261,96 @@ export class GameRenderer {
     this.drawToast(state, layout.preview.y + layout.preview.height - 52);
     if (state.modal) this.drawModal(state.modal);
     layer.end();
+  }
+
+  drawHangarWeaponSelector(state, layout, fighter) {
+    const layer = this.uiLayer;
+    const current = state.hangar.weaponModeIndex || 0;
+    const modes = fighter.toolModes;
+    layout.weaponCards.forEach((card) => {
+      const index = normalizeWeaponIndex(fighter.id, current + card.offset);
+      const mode = modes[index];
+      const selected = card.offset === 0;
+      const pressed = state.uiPress === `weapon:${card.offset}`;
+      const rect = pressed ? { ...card, x: card.x + 2, y: card.y + 2, width: card.width - 4, height: card.height - 4 } : card;
+      layer.rect({ ...rect, color: selected ? COLORS.surfaceStrong : COLORS.battleInk, opacity: selected ? 0.98 : 0.8, border: selected ? fighter.accent : COLORS.line, z: 8 });
+      layer.text(card.offset < 0 ? "‹" : card.offset > 0 ? "›" : `${index + 1}/${modes.length}`, { x: rect.x + 4, y: rect.y + 3, width: rect.width - 8, height: 13, color: selected ? fighter.accent : COLORS.soft, fontSize: 7, align: card.offset < 0 ? "left" : card.offset > 0 ? "right" : "center", weight: 900, z: 9 });
+      layer.text(mode.name.replace(/^\d+\s*/, ""), { x: rect.x + 5, y: rect.y + 17, width: rect.width - 10, height: 22, color: COLORS.ink, fontSize: selected ? 9 : 8, align: "center", weight: 900, z: 9 });
+    });
+  }
+
+  drawHangarWeaponDemo(state, layout, fighter) {
+    const layer = this.uiLayer;
+    const mode = fighter.toolModes[state.hangar.weaponModeIndex || 0];
+    const progress = state.settings.reducedMotion ? 0.55 : (this.time * 1.8) % 1;
+    const originX = this.width / 2;
+    const originY = layout.previewButtons[0].y - 38;
+    const targetY = layout.weaponCards[0].y + layout.weaponCards[0].height + 10;
+    const count = Math.min(5, mode.count || 1);
+    if (mode.pattern === "laser") {
+      for (let index = 0; index < count; index += 1) {
+        const offset = (index - (count - 1) / 2) * 12;
+        layer.line({ x1: originX + offset * 0.35, y1: originY, x2: originX + offset, y2: targetY, width: Math.min(5, (mode.width || 4) * 0.45), color: index % 2 ? fighter.secondary : fighter.accent, opacity: 0.48 + progress * 0.32, z: 6 });
+      }
+      return;
+    }
+    for (let index = 0; index < count; index += 1) {
+      const spread = (index - (count - 1) / 2) * Math.max(8, (mode.spread || 0.05) * 150);
+      const x = originX + spread * (1 - progress);
+      const y = originY + (targetY - originY) * progress;
+      if (mode.pattern === "rail") layer.line({ x1: originX + spread * 0.25, y1: originY, x2: x, y2: y, width: 2.4, color: fighter.accent, opacity: 0.75, z: 6 });
+      else if (mode.pattern === "wave") layer.circle({ x, y, radius: 5 + Math.sin(progress * Math.PI) * 5, color: fighter.accent, opacity: 0.34, border: fighter.secondary, z: 6 });
+      else if (mode.pattern === "heavy") layer.circle({ x, y, radius: 8, color: fighter.accent, opacity: 0.72, border: fighter.secondary, z: 6 });
+      else layer.circle({ x, y, radius: mode.pattern === "seeker" ? 4.5 : 3.5, color: fighter.accent, opacity: 0.88, z: 6 });
+    }
+  }
+
+  drawHangarInfo(state, layout, fighter) {
+    const layer = this.uiLayer;
+    const info = layout.info;
+    const mode = state.hangar.previewMode;
+    layer.rect({ ...info, color: COLORS.surface, opacity: 0.92, border: COLORS.line, z: 1 });
+    layer.rect({ x: info.x, y: info.y, width: 4, height: info.height, color: fighter.accent, z: 2 });
+    if (mode === "assault") {
+      const metrics = weaponMetrics(fighter.id, state.hangar.weaponModeIndex || 0);
+      layer.text(`${metrics.patternLabel} · ${metrics.mode.name}`, { x: info.x + 14, y: info.y + 7, width: info.width - 28, height: 18, color: fighter.accent, fontSize: 9, weight: 900 });
+      layer.text(`标准状态 · 武器 LV.3 · 爆发 ${metrics.burstGrade} · 覆盖 ${metrics.coverageGrade} · ${metrics.handling}`, { x: info.x + 14, y: info.y + 27, width: info.width - 28, height: 17, color: COLORS.ink, fontSize: 8, weight: 800 });
+      const values = metrics.kind === "laser"
+        ? [["总DPS", metrics.dps], ["完整照射", metrics.burstDamage], ["预热", `${metrics.warmup}s`], ["热量", metrics.heat]]
+        : [["单发", metrics.damagePerProjectile], ["每轮", metrics.volleyDamage], ["理论DPS", metrics.dps], ["弹速", metrics.speed]];
+      this.drawMetricCells(layer, info, values, fighter.accent);
+      return;
+    }
+    if (mode === "transform") {
+      layer.text(`变形 · ${fighter.transformation.label}`, { x: info.x + 14, y: info.y + 7, width: info.width - 28, height: 18, color: fighter.accent, fontSize: 9, weight: 900 });
+      layer.text(`需要 3 个核心 · 强袭 10 秒 · 变形评分 ${fighter.stats.transform}`, { x: info.x + 14, y: info.y + 27, width: info.width - 28, height: 18, color: COLORS.ink, fontSize: 9, weight: 850 });
+      wrapLine(fighter.transformation.summary, this.width < 350 ? 24 : 30).slice(0, 2).forEach((line, index) => layer.text(line, { x: info.x + 14, y: info.y + 49 + index * 17, width: info.width - 28, height: 16, color: COLORS.soft, fontSize: 8, weight: 700 }));
+      return;
+    }
+    if (mode === "tactical") {
+      layer.text(`技能 · ${fighter.tactical.name}`, { x: info.x + 14, y: info.y + 7, width: info.width - 28, height: 18, color: fighter.accent, fontSize: 9, weight: 900 });
+      layer.text(`冷却 ${fighter.tactical.cooldown.toFixed(1)} 秒 · ${fighter.tactical.count} 发 · 战术评分 ${fighter.stats.tactical}`, { x: info.x + 14, y: info.y + 27, width: info.width - 28, height: 18, color: COLORS.ink, fontSize: 9, weight: 850 });
+      wrapLine(fighter.special, this.width < 350 ? 24 : 30).slice(0, 2).forEach((line, index) => layer.text(line, { x: info.x + 14, y: info.y + 49 + index * 17, width: info.width - 28, height: 16, color: COLORS.soft, fontSize: 8, weight: 700 }));
+      return;
+    }
+    layer.text(`${fighter.country} · ${fighter.role}`, { x: info.x + 14, y: info.y + 7, width: info.width - 28, height: 18, color: fighter.accent, fontSize: 9, weight: 900 });
+    layer.text(fighter.displayName, { x: info.x + 14, y: info.y + 25, width: info.width - 28, height: 29, color: COLORS.ink, fontSize: info.height < 106 ? 19 : 22, weight: 900 });
+    layer.text(`${fighter.passiveName} · 生命 ${fighter.health}`, { x: info.x + 14, y: info.y + 54, width: info.width - 28, height: 16, color: COLORS.soft, fontSize: 8, weight: 800 });
+    const blend = state.settings.reducedMotion ? 1 : Math.min(1, (this.frameDelta || 0.016) * 8);
+    this.displayStats.mobility += (fighter.stats.mobility - this.displayStats.mobility) * blend;
+    this.displayStats.firepower += (fighter.stats.firepower - this.displayStats.firepower) * blend;
+    this.displayStats.armor += (fighter.stats.armor - this.displayStats.armor) * blend;
+    this.drawMetricCells(layer, info, [["机动", Math.round(this.displayStats.mobility)], ["火力", Math.round(this.displayStats.firepower)], ["装甲", Math.round(this.displayStats.armor)]], fighter.accent);
+  }
+
+  drawMetricCells(layer, info, values, accent) {
+    const slot = (info.width - 28) / values.length;
+    const y = info.y + info.height - 35;
+    values.forEach(([label, value], index) => {
+      const x = info.x + 14 + index * slot;
+      layer.text(label, { x, y, width: slot - 5, height: 13, color: COLORS.soft, fontSize: 7, align: "center", weight: 750 });
+      layer.text(String(value), { x, y: y + 13, width: slot - 5, height: 17, color: index === 0 ? accent : COLORS.ink, fontSize: 10, align: "center", weight: 900 });
+    });
   }
 
   renderCombat(state) {
