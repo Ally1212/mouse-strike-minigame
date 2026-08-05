@@ -167,9 +167,10 @@ export class CombatSystem {
 
     this.updateWave();
     this.updateTimers(delta);
+    this.updatePassive(delta);
     this.updateTransform(delta);
     this.updateNuclear(delta);
-    this.updateSkillEffect(delta);
+    this.updatePassiveEffect(delta);
     this.updateAutoWingman(delta);
 
     if (state.mission) {
@@ -195,7 +196,7 @@ export class CombatSystem {
 
   updateWave() {
     const state = this.state;
-    const nextWave = Math.floor(state.elapsed / 20) + 1;
+    const nextWave = Math.floor(state.elapsed / 15) + 1;
     if (nextWave === state.wave) return;
     state.wave = nextWave;
     state.waveClearStreak += 1;
@@ -209,7 +210,6 @@ export class CombatSystem {
 
   updateTimers(dt) {
     const state = this.state;
-    state.skillCooldown = Math.max(0, state.skillCooldown - dt);
     state.wingmanCooldown = Math.max(0, state.wingmanCooldown - dt);
     state.wingmanTime = Math.max(0, state.wingmanTime - dt);
     state.overdrive = Math.max(0, state.overdrive - dt);
@@ -309,20 +309,38 @@ export class CombatSystem {
     return true;
   }
 
-  useSkill() {
+  passiveChargeRate() {
+    const state = this.state;
+    if (this.fighterId === "j20") return 1 + Math.min(0.75, state.entities.enemies.filter((enemy) => enemy.marked).length * 0.15);
+    if (this.fighterId === "j35") return 1 + Math.min(1, state.entities.enemies.filter((enemy) => enemy.marked).length * 0.2);
+    if (this.fighterId === "faxx") return state.entities.playerProjectiles.length > 0 || state.laserBeams.length > 0 ? 1.2 : 1;
+    if (this.fighterId === "f22") return state.recentHitTime <= 0 ? 1.35 : 1;
+    if (this.fighterId === "typhoon") return 1 + Math.min(0.9, (state.stormPierceHits || 0) * 0.12);
+    if (this.fighterId === "rafale") return 1 + Math.min(0.8, Math.max(0, ...state.entities.enemies.map((enemy) => enemy.resonance || 0)) * 0.16);
+    if (this.fighterId === "gripen") return 1 + Math.min(1.2, (state.overclockStacks || 0) * 0.1);
+    if (this.fighterId === "su57") return 1 + Math.min(1, (state.counterCharge || 0) * 0.18);
+    if (this.fighterId === "hypersonic") return 1 + Math.min(0.9, (state.formChain || 0) * 0.18);
+    return 1;
+  }
+
+  updatePassive(dt) {
+    const state = this.state;
+    if (state.ended || state.mission || state.pendingUpgrade) return false;
+    state.passiveTimer = Math.max(0, state.passiveTimer - dt * Math.min(2.2, this.passiveChargeRate()));
+    if (state.passiveTimer > 0) return false;
+    return this.triggerPassive();
+  }
+
+  triggerPassive() {
     const state = this.state;
     const tactical = this.fighter.tactical;
-    if (state.skillCooldown > 0) {
-      this.notify("技能冷却", `${state.skillCooldown.toFixed(1)} 秒后就绪`, 1.2);
-      this.play("reject");
-      return false;
-    }
-    state.skillCooldown = tactical.cooldown;
-    state.skillUses = (state.skillUses || 0) + 1;
+    const ability = fighterAbility(this.fighterId);
+    state.passiveTimer = ability.passive.interval;
+    state.passiveInterval = ability.passive.interval;
+    state.passiveUses = (state.passiveUses || 0) + 1;
     state.shake = 8;
     state.flash = 0.34;
-    const ability = fighterAbility(this.fighterId);
-    state.skillEffect = { style: ability.style, timer: 1.35, elapsed: 0, bursts: 0 };
+    state.passiveEffect = { style: ability.style, timer: 1.35, elapsed: 0, bursts: 0 };
     if (tactical.projectile === "nuclear") {
       state.nuclear = { warning: 0.62, timer: 1.25, x: state.player.x, y: state.player.y - 80 };
       this.notify("天穹核裁决", "核弹锁定，1.2 秒后引爆", 1.8);
@@ -343,7 +361,7 @@ export class CombatSystem {
     }
     const counterBonus = this.fighterId === "su57" ? 1 + (state.counterCharge || 0) * 0.22 : 1;
     state.counterCharge = this.fighterId === "su57" ? 0 : state.counterCharge;
-    if (this.fighterId === "faxx") this.deploySkillWingmen();
+    if (this.fighterId === "faxx") this.deployPassiveWingmen();
     const count = Math.max(1, tactical.count + (this.fighterId === "gripen" ? Math.min(8, state.overclockStacks || 0) : 0));
     const center = (count - 1) / 2;
     const origins = fighterWeaponOrigins(this.fighter, state.player.x, state.player.y, fighterCombatScale(state.transformed), tactical.projectile, count);
@@ -365,13 +383,13 @@ export class CombatSystem {
     }
     if (this.fighterId === "gripen") state.overclockStacks = 0;
     if (this.fighterId === "su57" && counterBonus >= 2 && state.upgrades.includes("armor-shield")) state.player.shieldCharges = Math.min(4, state.player.shieldCharges + 1);
-    this.notify(tactical.name, `${count} 发战术齐射`, 1.8);
+    this.notify(`被动触发 · ${ability.passive.name}`, `${count} 发专属齐射`, 1.8);
     this.play("skill", { fighterId: this.fighterId });
     return true;
   }
 
-  updateSkillEffect(dt) {
-    const effect = this.state.skillEffect;
+  updatePassiveEffect(dt) {
+    const effect = this.state.passiveEffect;
     if (!effect) return;
     effect.elapsed += dt;
     effect.timer -= dt;
@@ -385,15 +403,15 @@ export class CombatSystem {
       this.splashDamage(this.state.player.x, this.state.player.y - 240, this.fighter.damage * 6, 110);
       effect.bursts = 1;
     }
-    if (effect.timer <= 0) this.state.skillEffect = null;
+    if (effect.timer <= 0) this.state.passiveEffect = null;
   }
 
-  deploySkillWingmen() {
+  deployPassiveWingmen() {
     const bonus = this.state.upgrades.includes("falcon-drone") ? 1 : 0;
     const spec = getWingmanSpec(this.fighterId);
     for (let index = 0; index < 2 + bonus; index += 1) this.state.entities.allies.push({
-      id: `skill-wingman-${this.state.nextEntityId++}`,
-      source: "skill",
+      id: `passive-wingman-${this.state.nextEntityId++}`,
+      source: "passive",
       index,
       count: 2 + bonus,
       x: this.state.player.x,
@@ -413,8 +431,8 @@ export class CombatSystem {
 
   updateAutoWingman(dt) {
     const state = this.state;
-    state.autoWingmanTimer = Math.max(0, (state.autoWingmanTimer ?? 15) - dt);
-    if (state.autoWingmanTimer > 0 || state.elapsed < 15 || state.wingmanCooldown > 0 || state.wingmanTime > 0 || state.mission || state.boss) return;
+    state.autoWingmanTimer = Math.max(0, (state.autoWingmanTimer ?? 8) - dt);
+    if (state.autoWingmanTimer > 0 || state.elapsed < 8 || state.wingmanCooldown > 0 || state.wingmanTime > 0 || state.mission || state.boss) return;
     if (this.summonWingman()) state.autoWingmanTimer = 28;
   }
 
@@ -432,8 +450,8 @@ export class CombatSystem {
   summonWingman() {
     const state = this.state;
     const spec = getWingmanSpec(this.fighterId);
-    if (state.elapsed < 15) {
-      this.notify("僚机尚未抵达", "开战 15 秒后可召唤", 1.4);
+    if (state.elapsed < 8) {
+      this.notify("僚机尚未抵达", "开战 8 秒后自动加入", 1.4);
       this.play("reject");
       return false;
     }
@@ -700,9 +718,9 @@ export class CombatSystem {
     const phase = combatPhase(state.elapsed);
     state.spawnTimer -= dt;
     if (state.spawnTimer <= 0) {
-      const base = phase === "identify" ? 1.05 : phase === "learn" ? 0.82 : phase === "expand" ? 0.62 : 0.48;
+      const base = phase === "identify" ? 0.68 : phase === "learn" ? 0.54 : phase === "expand" ? 0.43 : 0.34;
       const density = state.difficulty * (state.recentHitTime > 0 ? 0.94 : 1);
-      state.spawnTimer = Math.max(0.2, base / density - Math.min(0.18, state.wave * 0.012));
+      state.spawnTimer = Math.max(0.18, base / density - Math.min(0.16, state.wave * 0.01));
       this.spawnEnemy();
     }
     for (let index = state.entities.enemies.length - 1; index >= 0; index -= 1) {
@@ -719,7 +737,7 @@ export class CombatSystem {
       }
       enemy.hitFlash = Math.max(0, enemy.hitFlash - dt);
       enemy.fireTimer -= dt;
-      if (state.elapsed >= 5 && enemy.fireTimer <= 0 && enemy.fireMode !== "none") {
+      if (state.elapsed >= 2 && enemy.fireTimer <= 0 && enemy.fireMode !== "none") {
         this.fireEnemyPattern(enemy);
         enemy.fireTimer = this.enemyFireInterval(enemy);
       }
@@ -1039,7 +1057,7 @@ export class CombatSystem {
             state.combo = Math.min(99, state.combo + 1);
             state.comboTimer = 2.2;
             if (state.upgrades.includes("storm-chain")) bullet.damage *= 1.18;
-            if (state.upgrades.includes("storm-refund")) state.skillCooldown = Math.max(0, state.skillCooldown - 0.28);
+            if (state.upgrades.includes("storm-refund")) state.passiveTimer = Math.max(0, state.passiveTimer - 0.28);
           }
         }
         if (this.fighterId === "rafale" && bullet.type === "wave") {
@@ -1138,7 +1156,7 @@ export class CombatSystem {
       const target = this.state.entities.enemies.find((candidate, candidateIndex) => candidateIndex !== index && !candidate.marked);
       if (target) target.marked = true;
     }
-    if (!forced && enemy.marked && this.fighterId === "j35" && this.state.upgrades.includes("falcon-reset")) this.state.skillCooldown = Math.max(0, this.state.skillCooldown - 0.45);
+    if (!forced && enemy.marked && this.fighterId === "j35" && this.state.upgrades.includes("falcon-reset")) this.state.passiveTimer = Math.max(0, this.state.passiveTimer - 0.45);
     this.releaseAt("enemies", index);
     this.state.shake = Math.max(this.state.shake, enemy.type === "elite" ? 7 : 3);
     this.play("kill", { type: enemy.type });

@@ -229,6 +229,7 @@ export class GameRenderer {
     const transition = state.settings.reducedMotion ? 0 : state.hangar.transition || 0;
     this.currentModel.scale.setScalar(scale * (FIGHTERS[state.fighterId].rig.cameraScale || 1) * (1 - Math.abs(transition) * 0.055));
     this.currentModel.position.x = transition * 28;
+    this.currentModel.position.z = 0;
     this.currentModel.rotation.y += transition * -0.16;
     this.currentModel.visible = state.hangar.previewMode !== "assault";
     this.hangarRoot.position.set(0, (this.height * 0.5 - previewCenterY) * 0.29, 0);
@@ -277,7 +278,7 @@ export class GameRenderer {
       this.drawHangarWeaponDemo(state, layout, fighter);
       this.drawHangarWeaponSelector(state, layout, fighter);
     }
-    const previewLabels = { flight: "飞行\n巡航姿态", transform: "变形\n机甲形态", assault: "火力\n强袭演示", tactical: "技能\n专属战术" };
+    const previewLabels = { flight: "飞行\n巡航姿态", transform: "变形\n机甲形态", assault: "火力\n强袭演示", tactical: "特性\n专属被动" };
     layout.previewButtons.forEach((button) => this.button(
       layer,
       button,
@@ -318,7 +319,7 @@ export class GameRenderer {
 
     this.drawHangarGuide(state, layout, fighter);
     this.button(layer, layout.map, BATTLE_MAPS[state.mapId].name, false, "surface", 24, state.uiPress === "map");
-    this.button(layer, layout.start, state.fighterId === "hypersonic" ? "验证暗号并出击" : "驾驶出击", false, "primary", 24, state.uiPress === "start", fighter.accent);
+    this.button(layer, layout.start, "驾驶出击", false, "primary", 24, state.uiPress === "start", fighter.accent);
     this.drawToast(state, layout.preview.y + layout.preview.height - 52);
     if (state.modal) this.drawModal(state.modal);
     layer.end();
@@ -504,9 +505,9 @@ export class GameRenderer {
     }
     if (mode === "tactical") {
       const ability = fighterAbility(fighter.id);
-      layer.text(`技能 · ${fighter.tactical.name}`, { x: info.x + 14, y: info.y + 7, width: info.width - 28, height: 18, color: fighter.accent, fontSize: 9, weight: 900 });
-      layer.text(`冷却 ${fighter.tactical.cooldown.toFixed(1)} 秒 · ${ability.skill.phases.join(" → ")}`, { x: info.x + 14, y: info.y + 27, width: info.width - 28, height: 18, color: COLORS.ink, fontSize: 8, weight: 850 });
-      wrapLine(ability.skill.description, this.width < 350 ? 24 : 30).slice(0, 2).forEach((line, index) => layer.text(line, { x: info.x + 14, y: info.y + 49 + index * 17, width: info.width - 28, height: 16, color: COLORS.soft, fontSize: 8, weight: 700 }));
+      layer.text(`被动 · ${ability.passive.name}`, { x: info.x + 14, y: info.y + 7, width: info.width - 28, height: 18, color: fighter.accent, fontSize: 9, weight: 900 });
+      layer.text(`自动 ${ability.passive.interval.toFixed(1)} 秒 · ${ability.passive.phases.join(" → ")}`, { x: info.x + 14, y: info.y + 27, width: info.width - 28, height: 18, color: COLORS.ink, fontSize: 8, weight: 850 });
+      wrapLine(ability.passive.description, this.width < 350 ? 24 : 30).slice(0, 2).forEach((line, index) => layer.text(line, { x: info.x + 14, y: info.y + 49 + index * 17, width: info.width - 28, height: 16, color: COLORS.soft, fontSize: 8, weight: 700 }));
       return;
     }
     layer.text(`${fighter.country} · ${fighter.role}`, { x: info.x + 14, y: info.y + 7, width: info.width - 28, height: 18, color: fighter.accent, fontSize: 9, weight: 900 });
@@ -845,7 +846,7 @@ export class GameRenderer {
   }
 
   drawSkillEffect(layer, combat, fighter, ox, oy) {
-    const effect = combat.skillEffect;
+    const effect = combat.passiveEffect;
     if (!effect) return;
     const progress = clamp(effect.elapsed / 1.35, 0, 1);
     const x = combat.player.x + ox;
@@ -1021,19 +1022,19 @@ export class GameRenderer {
     layer.text(`${weaponText} · ${passiveStatus}`, { x: healthX, y: layout.hud.y + 44, width: healthWidth, height: 13, color: fighter.accent, fontSize: 7, weight: 900, z: 21 });
     this.button(layer, layout.pause, "暂停", false, "surface", 24, state.uiPress === "pause");
 
-    const labels = {
-      skill: ["技能", combat.skillCooldown > 0 ? combat.skillCooldown.toFixed(1) : "就绪"],
-      transform: [combat.transformed ? "强袭" : "变身", combat.transformed ? combat.transformTime.toFixed(1) : `${combat.transformCores}/3`],
-    };
+    const labels = { transform: [combat.transformed ? "强袭" : "变身", combat.transformed ? combat.transformTime.toFixed(1) : `${combat.transformCores}/3`] };
     Object.values(layout.actions).forEach((rect) => {
       const active = rect.id === "transform" && (combat.transformed || combat.transformCores >= 3);
       this.actionButton(layer, rect, labels[rect.id], {
         active,
-        primary: rect.id === "skill",
+        primary: true,
         pressed: state.uiPress === rect.id,
         accent: fighter.accent,
       });
     });
+    const ability = fighterAbility(state.fighterId);
+    const passiveRatio = 1 - clamp(combat.passiveTimer / Math.max(0.1, combat.passiveInterval), 0, 1);
+    layer.text(`被动 · ${ability.passive.name} ${Math.round(passiveRatio * 100)}%`, { x: layout.weapon.x, y: layout.weapon.y - 18, width: layout.weapon.width, height: 14, color: fighter.accent, fontSize: 7.5, weight: 900, z: 25 });
     const weaponPressed = state.uiPress === "form";
     layer.rect({ ...layout.weapon, color: weaponPressed ? COLORS.surfaceStrong : COLORS.battleInk, opacity: 0.8, border: darkenHex(fighter.accent, 0.2), z: 24 });
     layer.rect({ x: layout.weapon.x, y: layout.weapon.y, width: 3, height: layout.weapon.height, color: fighter.accent, z: 25 });

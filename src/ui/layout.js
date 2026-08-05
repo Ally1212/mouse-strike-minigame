@@ -91,21 +91,20 @@ export function computeCombatLayout(width, height, safeArea = {}, menuButton = n
   const safeTop = Math.max(10, safeArea.top || 0);
   const safeBottom = Math.max(12, height - (safeArea.bottom || height));
   const pad = 12;
-  const mainButton = Math.max(62, Math.min(70, width * 0.18));
+  const mainButton = Math.max(64, Math.min(72, width * 0.19));
   const gap = 8;
   const baseY = height - safeBottom - mainButton - 12;
   const hudY = Math.max(safeTop + 4, Number.isFinite(menuButton?.bottom) ? menuButton.bottom + 8 : 0);
   const moveY = hudY + 68;
-  const skillX = width - pad - mainButton;
-  const transformSize = Math.max(58, Math.min(64, width * 0.165));
+  const transformSize = mainButton;
+  const transformX = width - pad - transformSize;
   return {
     hud: { x: pad, y: hudY, width: width - pad * 2, height: 58 },
     pause: { id: "pause", x: width - pad - 52, y: hudY + 7, width: 52, height: 44 },
     actions: {
-      skill: { id: "skill", x: skillX, y: baseY, width: mainButton, height: mainButton },
-      transform: { id: "transform", x: skillX - transformSize - gap, y: baseY + mainButton - transformSize, width: transformSize, height: transformSize },
+      transform: { id: "transform", x: transformX, y: baseY, width: transformSize, height: transformSize },
     },
-    weapon: { id: "form", x: pad, y: baseY + mainButton - 50, width: Math.min(170, width - mainButton - transformSize - gap * 3 - pad * 2), height: 50 },
+    weapon: { id: "form", x: pad, y: baseY + mainButton - 50, width: Math.min(190, width - transformSize - gap - pad * 2), height: 50 },
     moveArea: { x: 0, y: moveY, width, height: Math.max(0, baseY + mainButton - moveY) },
   };
 }

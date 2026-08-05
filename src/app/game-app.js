@@ -324,15 +324,13 @@ export class GameApp {
     else if (event.code === "Space") {
       event.preventDefault();
       this.combatSystem?.summonWingman();
-    } else if (event.key.toLowerCase() === "e") this.combatSystem?.useSkill();
-    else if (event.key.toLowerCase() === "f") this.combatSystem?.cycleTool();
+    } else if (event.key.toLowerCase() === "f") this.combatSystem?.cycleTool();
     else if (event.key.toLowerCase() === "r") this.combatSystem?.tryTransform();
   }
 
   activateAction(id) {
     if (!this.combatSystem || this.state.paused) return;
     if (id === "form") this.combatSystem.cycleTool();
-    else if (id === "skill") this.combatSystem.useSkill();
     else if (id === "transform") this.combatSystem.tryTransform();
   }
 
@@ -381,7 +379,7 @@ export class GameApp {
       lines: [
         "单指拖动战机，主武器会自动射击",
         "点击左下武器条：循环切换弹道，X-10 为 10 种",
-        "技能：释放当前战机专属主动技能",
+        "被动：持续战斗会自动释放当前战机专属特性",
         "变身：集齐 3 个红球后手动启动 10 秒",
         "僚机：开战 15 秒后自动加入，无需额外按钮",
         "紫色进化球：暂停战斗，从 3 项专属强化中选择 1 项",
@@ -499,14 +497,6 @@ export class GameApp {
   }
 
   async launchSelectedFighter() {
-    if (this.state.fighterId === "hypersonic") {
-      const value = await this.runtime.requestTextInput({ title: "输入 4 位概念暗号", maxLength: 4, numeric: true });
-      if (value !== "0000") {
-        this.toast("概念暗号错误，无法驾驶");
-        this.audio.play("reject");
-        return;
-      }
-    }
     const launchId = ++this.launchSequence;
     this.state.modal = {
       type: "loading",
@@ -633,7 +623,7 @@ export class GameApp {
       this.state.modal = {
         type: "pause",
         title: "战斗已暂停",
-        lines: ["计时、敌机、弹幕、技能和变身均已暂停"],
+        lines: ["计时、敌机、弹幕、被动蓄能和变身均已暂停"],
         options: [{ id: "resume", label: "继续战斗" }, { id: "hangar", label: "返回机库" }],
       };
     }

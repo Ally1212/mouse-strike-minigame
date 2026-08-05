@@ -12,22 +12,24 @@ function createSystem(fighterId) {
 }
 
 describe("fighter identities and progression", () => {
-  test("all nine fighters have unique combat styles, three skill phases and three upgrades", () => {
+  test("all nine fighters have unique combat styles, three passive phases and three upgrades", () => {
     const abilities = FIGHTER_ORDER.map(fighterAbility);
     expect(new Set(abilities.map((ability) => ability.style))).toHaveLength(9);
     abilities.forEach((ability) => {
-      expect(ability.skill.phases).toHaveLength(3);
+      expect(ability.passive.phases).toHaveLength(3);
+      expect(ability.passive.interval).toBeGreaterThanOrEqual(5);
       expect(ability.upgrades).toHaveLength(3);
       expect(new Set(ability.upgrades.map((item) => item.id)).size).toBe(3);
     });
   });
 
-  test("skills start their fighter-specific effect instead of a shared anonymous volley", () => {
+  test("passives automatically start their fighter-specific effect", () => {
     for (const fighterId of FIGHTER_ORDER) {
       const { system, combat } = createSystem(fighterId);
-      expect(system.useSkill()).toBe(true);
-      expect(combat.skillEffect.style).toBe(fighterAbility(fighterId).style);
-      expect(combat.skillCooldown).toBe(FIGHTERS[fighterId].tactical.cooldown);
+      combat.passiveTimer = 0;
+      expect(system.updatePassive(0)).toBe(true);
+      expect(combat.passiveEffect.style).toBe(fighterAbility(fighterId).style);
+      expect(combat.passiveTimer).toBe(fighterAbility(fighterId).passive.interval);
     }
   });
 
@@ -44,7 +46,7 @@ describe("fighter identities and progression", () => {
 
   test("wingmen automatically deploy after arrival without a dedicated action button", () => {
     const { system, combat } = createSystem("faxx");
-    combat.elapsed = 15;
+    combat.elapsed = 8;
     combat.autoWingmanTimer = 0;
     system.updateAutoWingman(0);
     expect(combat.entities.allies.length).toBeGreaterThan(0);

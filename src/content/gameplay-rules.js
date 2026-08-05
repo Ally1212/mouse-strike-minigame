@@ -34,9 +34,9 @@ export function assaultFireSpec(progress, fighterId = "") {
 
 export function combatPhase(elapsed) {
   const seconds = Math.max(0, Number(elapsed) || 0);
-  if (seconds < 5) return "identify";
-  if (seconds < 15) return "learn";
-  if (seconds < 35) return "expand";
+  if (seconds < 2) return "identify";
+  if (seconds < 8) return "learn";
+  if (seconds < 20) return "expand";
   return "full";
 }
 

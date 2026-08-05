@@ -145,7 +145,7 @@ test("机库四模块展示真实参数并保存默认攻击", async ({ page }) 
   await expect.poll(visibleLabels).toEqual(expect.arrayContaining(["变形 · 威龙天将形态", "需要 3 个核心 · 强袭 10 秒 · 变形评分 92"]));
 
   await clickRect(page, hangar.previewButtons.find((rect) => rect.id === "tactical"));
-  await expect.poll(visibleLabels).toEqual(expect.arrayContaining(["技能 · 威龙天罚", "冷却 5.2 秒 · 扫描锁定 → 龙牙齐射 → 龙脊贯穿"]));
+  await expect.poll(visibleLabels).toEqual(expect.arrayContaining(["被动 · 龙脊贯穿", "自动 6.0 秒 · 扫描锁定 → 龙牙齐射 → 龙脊贯穿"]));
 
   await clickRect(page, hangar.previewButtons.find((rect) => rect.id === "assault"));
   await expect.poll(visibleLabels).toEqual(expect.arrayContaining(["追踪 · 龙牙追踪弹", "理论DPS"]));
@@ -173,38 +173,42 @@ test("机库四模块展示真实参数并保存默认攻击", async ({ page }) 
   expect(await page.evaluate(() => globalThis.__mouseStrikeMiniGame.state.combat.toolModeIndex)).toBe(1);
 });
 
-test("X-10 错误暗号被拒绝，正确暗号每次出击都重新验证", async ({ page }) => {
+test("X-10 免费开放并可直接出击", async ({ page }) => {
   await openGame(page);
   await page.evaluate(() => globalThis.__mouseStrikeMiniGame.app.selectFighter("hypersonic"));
   const hangar = await getLayout(page, "hangar");
-
-  page.once("dialog", async (dialog) => {
-    expect(dialog.type()).toBe("prompt");
-    expect(dialog.message()).toContain("概念暗号");
-    await dialog.accept("1111");
-  });
-  await clickRect(page, hangar.start);
-  await expect.poll(() => page.evaluate(() => globalThis.__mouseStrikeMiniGame.state.toast?.text || "")).toContain("暗号错误");
-  expect(await page.evaluate(() => globalThis.__mouseStrikeMiniGame.state.scene)).toBe("hangar");
-
   let promptCount = 0;
-  page.once("dialog", async (dialog) => {
+  page.on("dialog", async (dialog) => {
     promptCount += 1;
-    await dialog.accept("0000");
+    await dialog.dismiss();
   });
   await clickRect(page, hangar.start);
   await page.waitForFunction(() => globalThis.__mouseStrikeMiniGame?.state?.scene === "combat");
-  expect(promptCount).toBe(1);
+  expect(promptCount).toBe(0);
 
   await page.evaluate(() => globalThis.__mouseStrikeMiniGame.app.returnToHangar());
   await page.waitForFunction(() => globalThis.__mouseStrikeMiniGame?.state?.scene === "hangar");
-  page.once("dialog", async (dialog) => {
-    promptCount += 1;
-    await dialog.accept("0000");
-  });
   await clickRect(page, hangar.start);
   await page.waitForFunction(() => globalThis.__mouseStrikeMiniGame?.state?.scene === "combat");
-  expect(promptCount).toBe(2);
+  expect(promptCount).toBe(0);
+});
+
+test("战斗返回机库后重置战机的场景深度", async ({ page }) => {
+  await openGame(page);
+  await page.evaluate(() => globalThis.__mouseStrikeMiniGame.app.startCombat());
+  await page.waitForFunction(() => globalThis.__mouseStrikeMiniGame?.state?.scene === "combat");
+  await expect.poll(() => page.evaluate(() => Math.abs(globalThis.__mouseStrikeMiniGame.app.renderer.currentModel.position.z))).toBeGreaterThan(100);
+
+  await page.evaluate(() => globalThis.__mouseStrikeMiniGame.app.returnToHangar());
+  await page.waitForFunction(() => globalThis.__mouseStrikeMiniGame?.state?.scene === "hangar");
+  await expect.poll(() => page.evaluate(() => {
+    const renderer = globalThis.__mouseStrikeMiniGame.app.renderer;
+    return {
+      parentIsHangar: renderer.currentModel.parent === renderer.hangarRoot,
+      z: renderer.currentModel.position.z,
+      visible: renderer.currentModel.visible,
+    };
+  })).toEqual({ parentIsHangar: true, z: 0, visible: true });
 });
 
 test("九架战机的四种预览完整落在机库安全框内", async ({ page }) => {
@@ -259,7 +263,7 @@ test("九架战机的四种预览完整落在机库安全框内", async ({ page 
   }
 });
 
-test("武器、技能、变身、自动僚机和双触点操作互不冲突", async ({ page }) => {
+test("武器、被动、变身、自动僚机和双触点操作互不冲突", async ({ page }) => {
   const runtimeErrors = collectRuntimeErrors(page);
   await openGame(page);
   const hangar = await getLayout(page, "hangar");
@@ -270,8 +274,8 @@ test("武器、技能、变身、自动僚机和双触点操作互不冲突", as
   await clickRect(page, combatLayout.weapon);
   expect(await page.evaluate(() => globalThis.__mouseStrikeMiniGame.state.combat.toolModeIndex)).toBe(1);
 
-  await clickRect(page, combatLayout.actions.skill);
-  expect(await page.evaluate(() => globalThis.__mouseStrikeMiniGame.state.combat.skillCooldown)).toBeGreaterThan(0);
+  await page.evaluate(() => { globalThis.__mouseStrikeMiniGame.state.combat.passiveTimer = 0; });
+  await page.waitForFunction(() => globalThis.__mouseStrikeMiniGame.state.combat.passiveUses > 0);
 
   await clickRect(page, combatLayout.actions.transform);
   expect(await page.evaluate(() => globalThis.__mouseStrikeMiniGame.state.combat.transformed)).toBe(false);
@@ -368,7 +372,8 @@ test("战斗 HUD 与暂停弹窗在窄屏保持完整", async ({ page }) => {
   const labels = await page.evaluate(() => globalThis.__mouseStrikeMiniGame.app.renderer.hudLayer.texts
     .filter((slot) => slot.sprite.visible)
     .map((slot) => slot.key.split("|")[0]));
-  expect(labels).toEqual(expect.arrayContaining(["中国 / 歼-20", "武器 1/3", "龙牙追踪弹", "技能", "变身"]));
+  expect(labels).toEqual(expect.arrayContaining(["中国 / 歼-20", "武器 1/3", "龙牙追踪弹", "变身"]));
+  expect(labels.some((label) => label.startsWith("被动 · 龙脊贯穿"))).toBe(true);
   expect(labels).not.toEqual(expect.arrayContaining(["攻击", "僚机"]));
   expect(labels.some((label) => label.includes("高价值锁定"))).toBe(true);
 
@@ -494,19 +499,19 @@ test("切到后台会冻结变身和冷却，返回后要求用户确认", async
     const api = globalThis.__mouseStrikeMiniGame;
     api.state.combat.transformCores = 3;
     api.app.combatSystem.tryTransform();
-    api.state.combat.skillCooldown = 7;
+    api.state.combat.passiveTimer = 7;
     window.dispatchEvent(new Event("blur"));
   });
   const frozen = await page.evaluate(() => ({
     elapsed: globalThis.__mouseStrikeMiniGame.state.combat.elapsed,
     transform: globalThis.__mouseStrikeMiniGame.state.combat.transformTime,
-    skill: globalThis.__mouseStrikeMiniGame.state.combat.skillCooldown,
+    passive: globalThis.__mouseStrikeMiniGame.state.combat.passiveTimer,
   }));
   await page.waitForTimeout(250);
   expect(await page.evaluate(() => ({
     elapsed: globalThis.__mouseStrikeMiniGame.state.combat.elapsed,
     transform: globalThis.__mouseStrikeMiniGame.state.combat.transformTime,
-    skill: globalThis.__mouseStrikeMiniGame.state.combat.skillCooldown,
+    passive: globalThis.__mouseStrikeMiniGame.state.combat.passiveTimer,
   }))).toEqual(frozen);
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await page.waitForFunction(() => globalThis.__mouseStrikeMiniGame.state.modal?.type === "resume");

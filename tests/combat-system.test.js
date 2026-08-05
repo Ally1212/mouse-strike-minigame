@@ -87,7 +87,7 @@ describe("complete combat migration", () => {
       maximumEnemyProjectiles = Math.max(maximumEnemyProjectiles, combat.entities.enemyProjectiles.length);
     }
     expect(maximumPlayerProjectiles).toBeGreaterThan(0);
-    expect(maximumPlayerProjectiles).toBeLessThanOrEqual(18);
+    expect(maximumPlayerProjectiles).toBeLessThanOrEqual(24);
     expect(maximumEnemyProjectiles).toBeLessThanOrEqual(12);
   });
 
@@ -201,23 +201,24 @@ describe("complete combat migration", () => {
     system.spawnEnemy("elite", 240);
     system.spawnBoss(4);
     const bossHealth = combat.boss.health;
-    expect(system.useSkill()).toBe(true);
+    expect(system.triggerPassive()).toBe(true);
     system.updateNuclear(1.3);
     expect(combat.entities.enemies).toHaveLength(0);
     expect(combat.entities.enemyProjectiles).toHaveLength(0);
     expect(combat.boss.health).toBeLessThan(bossHealth);
-    expect(combat.skillCooldown).toBe(FIGHTERS.hypersonic.tactical.cooldown);
+    expect(combat.passiveTimer).toBe(combat.passiveInterval);
   });
 
-  test("skills reject repeated use until cooldown completes", () => {
+  test("passives trigger automatically after their charge completes", () => {
     const { system, combat } = createSystem("j35");
-    expect(system.useSkill()).toBe(true);
+    combat.passiveTimer = 0;
+    expect(system.updatePassive(0)).toBe(true);
     const firstCount = combat.entities.playerProjectiles.length;
-    expect(system.useSkill()).toBe(false);
+    expect(combat.passiveTimer).toBe(combat.passiveInterval);
+    system.updatePassive(combat.passiveInterval - 0.01);
     expect(combat.entities.playerProjectiles).toHaveLength(firstCount);
-    system.updateTimers(FIGHTERS.j35.tactical.cooldown);
-    expect(combat.skillCooldown).toBe(0);
-    expect(system.useSkill()).toBe(true);
+    system.updatePassive(0.02);
+    expect(combat.passiveUses).toBe(2);
   });
 
   test("all ten enemy types spawn with their own fire modes", () => {
@@ -300,7 +301,7 @@ describe("complete combat migration", () => {
     expect(combat.trajectoryLevel).toBe(0);
   });
 
-  test("active wingmen unlock at 15 seconds and keep independent health", () => {
+  test("automatic wingmen arrive quickly and keep independent health", () => {
     const { system, combat } = createSystem("faxx");
     expect(system.summonWingman()).toBe(false);
     combat.elapsed = 15;
@@ -402,7 +403,7 @@ describe("complete combat migration", () => {
       const { system, combat } = createSystem("f22");
       const enemy = system.spawnEnemy("elite", 160);
       enemy.marked = true;
-      system.useSkill();
+      system.triggerPassive();
       expect(combat.entities.enemies).toHaveLength(0);
     }
     {
@@ -410,7 +411,7 @@ describe("complete combat migration", () => {
       const enemy = system.spawnEnemy("elite", 160);
       enemy.marked = true;
       const before = enemy.health;
-      system.useSkill();
+      system.triggerPassive();
       expect(enemy.health).toBeLessThan(before);
     }
     {
@@ -450,10 +451,10 @@ describe("complete combat migration", () => {
       const charged = createSystem("su57");
       charged.system.damagePlayer(0, 0, 10);
       expect(charged.combat.counterCharge).toBe(1);
-      charged.system.useSkill();
+      charged.system.triggerPassive();
       const chargedDamage = charged.combat.entities.playerProjectiles[0].damage;
       const baseline = createSystem("su57");
-      baseline.system.useSkill();
+      baseline.system.triggerPassive();
       expect(chargedDamage).toBeGreaterThan(baseline.combat.entities.playerProjectiles[0].damage);
       expect(charged.combat.counterCharge).toBe(0);
     }

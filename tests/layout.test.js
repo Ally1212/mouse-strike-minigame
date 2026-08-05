@@ -23,7 +23,7 @@ describe("touch layout", () => {
     const menuButton = { left: 278, top: 48, right: 365, bottom: 80, width: 87, height: 32 };
     const combat = computeCombatLayout(375, 812, safeArea, menuButton);
     [combat.pause, combat.weapon, ...Object.values(combat.actions)].forEach(expectTouchable);
-    expect(Object.keys(combat.actions)).toEqual(["skill", "transform"]);
+    expect(Object.keys(combat.actions)).toEqual(["transform"]);
     expect(combat.pause.y).toBeGreaterThan(menuButton.bottom);
     expect(combat.hud.y).toBeGreaterThan(menuButton.bottom);
     Object.values(combat.actions).forEach((rect) => {

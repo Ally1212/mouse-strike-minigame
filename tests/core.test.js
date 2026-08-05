@@ -14,7 +14,7 @@ describe("mini game foundation", () => {
     expect(state.combat.transformCores).toBe(0);
   });
 
-  test("restores local settings without accepting a persisted X-10 unlock", () => {
+  test("restores local settings while ignoring obsolete X-10 unlock flags", () => {
     const state = createInitialState({
       fighterId: "rafale",
       mapId: "arctic",
@@ -42,7 +42,7 @@ describe("mini game foundation", () => {
     expect(serializeSettings(state)).toMatchObject({ reducedMotion: true, hangarGuideStage: 2, weaponModes: { rafale: 2, hypersonic: 9 } });
   });
 
-  test("never persists the X-10 concept code state", () => {
+  test("never persists obsolete X-10 gate state", () => {
     const state = createInitialState({ fighterId: "hypersonic", x10Unlocked: true });
     expect(serializeSettings(state)).not.toHaveProperty("x10Unlocked");
     expect(serializeSettings(state)).not.toHaveProperty("conceptCode");

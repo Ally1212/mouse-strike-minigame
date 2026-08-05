@@ -1,4 +1,5 @@
 import { getBattleMap } from "../content/battle-maps.js";
+import { fighterAbility } from "../content/fighter-abilities.js";
 import { FIGHTERS, getFighterProfile, getToolModes } from "../content/fighter-profiles.js";
 
 export const STORAGE_KEY = "mouse-strike-minigame-settings-v1";
@@ -55,6 +56,7 @@ export function createInitialState(saved = {}) {
 
 export function createCombatState(fighter, toolModeIndex = 0) {
   const normalizedToolMode = ((Math.trunc(Number(toolModeIndex) || 0) % fighter.toolModes.length) + fighter.toolModes.length) % fighter.toolModes.length;
+  const passive = fighterAbility(fighter.id).passive;
   return {
     running: true,
     ended: false,
@@ -72,7 +74,9 @@ export function createCombatState(fighter, toolModeIndex = 0) {
     transformTime: 0,
     transformStage: 0,
     toolModeIndex: normalizedToolMode,
-    skillCooldown: 0,
+    passiveTimer: Math.min(1.6, passive.interval * 0.3),
+    passiveInterval: passive.interval,
+    passiveUses: 0,
     wingmanCooldown: 0,
     wingmanTime: 0,
     overdrive: 0,
@@ -84,15 +88,15 @@ export function createCombatState(fighter, toolModeIndex = 0) {
     laserBeams: [],
     pendingLaser: null,
     fireTimer: 0,
-    spawnTimer: 0.35,
+    spawnTimer: 0.05,
     spawnCount: 0,
     nextEntityId: 1,
     bossSpawnedWaves: [],
-    mapEventTimer: 12,
-    meteorTimer: 10,
-    airdropTimer: 22,
+    mapEventTimer: 6,
+    meteorTimer: 7,
+    airdropTimer: 12,
     dangerTick: 0,
-    difficulty: 1,
+    difficulty: 1.08,
     waveClearStreak: 0,
     recentHitTime: 0,
     grazeCount: 0,
@@ -103,8 +107,8 @@ export function createCombatState(fighter, toolModeIndex = 0) {
     lastToolModeIndex: normalizedToolMode,
     upgrades: [],
     pendingUpgrade: false,
-    autoWingmanTimer: 15,
-    skillEffect: null,
+    autoWingmanTimer: 8,
+    passiveEffect: null,
     hitStop: 0,
     shake: 0,
     flash: 0,
