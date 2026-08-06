@@ -13,6 +13,8 @@ export const BATTLE_MAPS = {
     structureSpeed: 58,
     event: "debris",
     airdropBias: "wingman",
+    objective: "突入地下空军基地并摧毁雷达阵列",
+    bossId: "fortress-eagle",
   },
   pacific: {
     id: "pacific",
@@ -26,6 +28,8 @@ export const BATTLE_MAPS = {
     structureSpeed: 66,
     event: "lightning",
     airdropBias: "skyfire",
+    objective: "突破舰队防空网并瘫痪航母甲板",
+    bossId: "tsunami-wing",
   },
   arctic: {
     id: "arctic",
@@ -39,6 +43,8 @@ export const BATTLE_MAPS = {
     structureSpeed: 54,
     event: "aurora",
     airdropBias: "defense",
+    objective: "在暴雪中恢复极地通讯链路",
+    bossId: "white-night-ghost",
   },
   "sky-corridor": {
     id: "sky-corridor",
@@ -52,6 +58,8 @@ export const BATTLE_MAPS = {
     structureSpeed: 64,
     event: "phase",
     airdropBias: "transform",
+    objective: "穿越云墙并切断空中都市能源核心",
+    bossId: "sky-ring",
   },
   "meteor-rift": {
     id: "meteor-rift",
@@ -65,6 +73,8 @@ export const BATTLE_MAPS = {
     structureSpeed: 50,
     event: "meteor",
     airdropBias: "firepower",
+    objective: "穿越碎片走廊并阻止轨道轰炸",
+    bossId: "doomsday-trident",
   },
 };
 

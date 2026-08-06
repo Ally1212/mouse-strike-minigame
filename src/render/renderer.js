@@ -1,10 +1,11 @@
-import * as THREE from "three";
+import * as THREE from "three-platformize";
 import { BATTLE_MAPS } from "../content/battle-maps.js";
 import { battleVisual, environmentDensity } from "../content/battle-visuals.js";
 import { fighterCombatScale, fighterSilhouetteGeometry, fighterWeaponHardpointKeys } from "../content/fighter-geometry.js";
 import { fighterAbility } from "../content/fighter-abilities.js";
 import { FIGHTER_ORDER, FIGHTERS } from "../content/fighter-profiles.js";
 import { MINI_MISSIONS } from "../content/mini-missions.js";
+import { battleCadence } from "../content/gameplay-rules.js";
 import { normalizeWeaponIndex, weaponMetrics } from "../content/weapon-metrics.js";
 import { computeCombatLayout, computeHangarLayout } from "../ui/layout.js";
 import { createFighterModel, updateFighterModel } from "./fighter-model.js";
@@ -26,6 +27,13 @@ const COLORS = {
   gold: "#f4bd4d",
   battleInk: "#061722",
 };
+
+export const COMPAT_LIGHT_SCALE = 0.18;
+
+export function configureRendererColorPipeline(renderer) {
+  renderer.outputEncoding = THREE.LinearEncoding;
+  renderer.toneMapping = THREE.NoToneMapping;
+}
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, Number(value) || 0));
@@ -86,9 +94,7 @@ export class GameRenderer {
     this.renderer = new THREE.WebGLRenderer({ canvas: runtime.canvas, antialias: true, alpha: false, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(runtime.viewport.pixelRatio);
     this.renderer.setSize(this.width, this.height, false);
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.1;
+    configureRendererColorPipeline(this.renderer);
     this.renderer.shadowMap.enabled = state.settings.quality === "high";
     this.uiScene = new THREE.Scene();
     this.uiCamera = new THREE.OrthographicCamera(0, this.width, this.height, 0, 0.1, 200);
@@ -105,11 +111,11 @@ export class GameRenderer {
     this.combatCamera.lookAt(0, 0, 0);
     this.combatRoot = new THREE.Group();
     this.combatScene.add(this.combatRoot);
-    this.combatScene.add(new THREE.HemisphereLight(0xbcecff, 0x07131b, 2.2));
-    const combatKey = new THREE.DirectionalLight(0xeefaff, 3.4);
+    this.combatScene.add(new THREE.HemisphereLight(0xbcecff, 0x07131b, 2.2 * COMPAT_LIGHT_SCALE));
+    const combatKey = new THREE.DirectionalLight(0xeefaff, 3.4 * COMPAT_LIGHT_SCALE);
     combatKey.position.set(-140, 260, 90);
     this.combatScene.add(combatKey);
-    const combatRim = new THREE.DirectionalLight(0x4bcdf4, 1.8);
+    const combatRim = new THREE.DirectionalLight(0x4bcdf4, 1.8 * COMPAT_LIGHT_SCALE);
     combatRim.position.set(130, 160, -120);
     this.combatScene.add(combatRim);
     this.combatVisual = { lastX: this.width / 2, bank: 0, pitch: 0 };
@@ -120,15 +126,15 @@ export class GameRenderer {
     this.hangarCamera.lookAt(0, 0, 0);
     this.hangarRoot = new THREE.Group();
     this.hangarScene.add(this.hangarRoot);
-    this.hangarScene.add(new THREE.HemisphereLight(0xa8eaff, 0x07111a, 2.5));
-    const key = new THREE.DirectionalLight(0xeefaff, 4.4);
+    this.hangarScene.add(new THREE.HemisphereLight(0xa8eaff, 0x07111a, 2.5 * COMPAT_LIGHT_SCALE));
+    const key = new THREE.DirectionalLight(0xeefaff, 4.4 * COMPAT_LIGHT_SCALE);
     key.position.set(-120, 170, 130);
     key.castShadow = true;
     this.hangarScene.add(key);
-    const fill = new THREE.DirectionalLight(0x53d8ff, 2.6);
+    const fill = new THREE.DirectionalLight(0x53d8ff, 2.6 * COMPAT_LIGHT_SCALE);
     fill.position.set(120, 40, 120);
     this.hangarScene.add(fill);
-    const rim = new THREE.DirectionalLight(0x86dfff, 1.5);
+    const rim = new THREE.DirectionalLight(0x86dfff, 1.5 * COMPAT_LIGHT_SCALE);
     rim.position.set(80, 90, -140);
     this.hangarScene.add(rim);
     this.transformLight = new THREE.PointLight(0x39cdf3, 0, 260, 1.7);
@@ -136,7 +142,7 @@ export class GameRenderer {
     this.hangarScene.add(this.transformLight);
     const pad = new THREE.Mesh(
       new THREE.CircleGeometry(118, 64),
-      new THREE.MeshStandardMaterial({ color: 0x0b2432, metalness: 0.66, roughness: 0.58 }),
+      new THREE.MeshLambertMaterial({ color: 0x0b2432, emissive: 0x031018, emissiveIntensity: 0.08 }),
     );
     pad.name = "hangar-pad";
     pad.rotation.x = -Math.PI / 2;
@@ -606,6 +612,7 @@ export class GameRenderer {
     this.drawEnvironmentLandmarks(layer, map.id, visual, midScroll, ox, oy);
     this.drawNearAtmosphere(layer, map.id, visual, nearScroll, ox, oy);
     layer.text(`${map.code}  /  ${map.name}`, { x: 14, y: Math.max(108, this.runtime.viewport.safeArea.top + 76), width: this.width - 28, height: 20, color: visual.streak, fontSize: 7, weight: 900, z: -12 });
+    layer.text(`${visual.landmark} · ${visual.mechanic}`, { x: 14, y: Math.max(122, this.runtime.viewport.safeArea.top + 90), width: this.width - 28, height: 18, color: visual.haze, fontSize: 6.5, weight: 750, z: -12 });
   }
 
   drawFarTerrain(layer, mapId, visual, scroll, ox, oy) {
@@ -842,7 +849,18 @@ export class GameRenderer {
   }
 
   drawEnemies(layer, combat, ox, oy) {
-    combat.entities.enemies.forEach((enemy) => this.drawAircraft(layer, enemy.x + ox, enemy.y + oy, enemy.radius, enemy.hitFlash > 0 ? "#ffffff" : enemy.color, enemy.type, 2));
+    combat.entities.enemies.forEach((enemy) => {
+      const x = enemy.x + ox;
+      const y = enemy.y + oy;
+      const visual = enemy.visual || {};
+      const engineCount = visual.engines || 1;
+      for (let index = 0; index < engineCount; index += 1) {
+        const offset = (index - (engineCount - 1) / 2) * Math.min(11, enemy.radius * 0.36);
+        layer.line({ x1: x + offset, y1: y - enemy.radius * 0.45, x2: x + offset - enemy.bank * 18, y2: y - enemy.radius * (0.9 + enemy.damageSmoke * 0.5), width: 2.2 + enemy.damageSmoke * 2.2, color: enemy.damageSmoke > 0.55 ? "#cf694f" : "#67d8ef", opacity: 0.58, z: 1 });
+      }
+      if (enemy.damageSmoke > 0.42) layer.circle({ x: x - enemy.bank * 20, y: y - enemy.radius * 0.8, radius: 4 + enemy.damageSmoke * 8, color: "#2a3032", opacity: 0.18 + enemy.damageSmoke * 0.25, z: 1 });
+      this.drawAircraft(layer, x, y, enemy.radius, enemy.hitFlash > 0 ? "#ffffff" : enemy.color, enemy.type, 2, enemy.bank, { ...visual, facing: "down" });
+    });
   }
 
   drawSkillEffect(layer, combat, fighter, ox, oy) {
@@ -875,48 +893,60 @@ export class GameRenderer {
     }
   }
 
-  drawAircraft(layer, x, y, radius, color, type, z) {
+  drawAircraft(layer, x, y, radius, color, type, z, bank = 0, visual = {}) {
+    const facing = visual.facing === "down" ? -1 : 1;
+    const py = (offset) => y + offset * facing;
     if (type === "helicopter") {
       layer.polygon({
         points: [
-          { x: x - radius * 0.58, y: y - radius * 0.52 },
-          { x: x + radius * 0.38, y: y - radius * 0.52 },
-          { x: x + radius * 0.66, y: y - radius * 0.12 },
-          { x: x + radius * 0.25, y: y + radius * 0.48 },
-          { x: x - radius * 0.54, y: y + radius * 0.38 },
+          { x: x - radius * 0.58, y: py(-radius * 0.52) },
+          { x: x + radius * 0.38, y: py(-radius * 0.52) },
+          { x: x + radius * 0.66, y: py(-radius * 0.12) },
+          { x: x + radius * 0.25, y: py(radius * 0.48) },
+          { x: x - radius * 0.54, y: py(radius * 0.38) },
           { x: x - radius * 0.78, y: y },
         ],
         color,
         border: "#d4f3e0",
         z,
       });
-      layer.line({ x1: x - radius * 1.25, y1: y - radius * 0.72, x2: x + radius * 1.25, y2: y - radius * 0.72, width: 3, color: "#d4f3e0", opacity: 0.8, z: z + 1 });
-      layer.line({ x1: x + radius * 0.38, y1: y + radius * 0.18, x2: x + radius * 1.18, y2: y + radius * 0.62, width: 5, color, z: z + 1 });
-      layer.circle({ x: x - radius * 0.12, y: y - radius * 0.12, radius: radius * 0.2, color: "#88d7e7", z: z + 2 });
+      layer.line({ x1: x - radius * 1.25, y1: py(-radius * 0.72), x2: x + radius * 1.25, y2: py(-radius * 0.72), width: 3, color: "#d4f3e0", opacity: 0.8, z: z + 1 });
+      layer.line({ x1: x + radius * 0.38, y1: py(radius * 0.18), x2: x + radius * 1.18, y2: py(radius * 0.62), width: 5, color, z: z + 1 });
+      layer.circle({ x: x - radius * 0.12, y: py(-radius * 0.12), radius: radius * 0.2, color: "#88d7e7", z: z + 2 });
       return;
     }
     const wide = type === "bomber" || type === "elite" || type === "carrier" || type === "splitter";
     const narrow = type === "sniper" || type === "fighter" || type === "scout";
-    const span = wide ? 1.36 : narrow ? 0.94 : 1.12;
-    const tail = type === "sniper" ? 1.28 : type === "bomber" ? 0.82 : 1;
+    const silhouette = visual.silhouette || type;
+    const span = silhouette === "heavy-wing" ? 1.62 : silhouette === "manta" ? 1.5 : silhouette === "needle" ? 0.72 : wide ? 1.36 : narrow ? 0.94 : 1.12;
+    const tail = silhouette === "needle" ? 1.42 : silhouette === "heavy-wing" ? 0.78 : 1;
+    const skew = bank * radius * 0.72;
     const points = [
-      { x, y: y - radius * 1.22 * tail },
-      { x: x + radius * 0.26, y: y - radius * 0.44 },
-      { x: x + radius * span, y: y + radius * 0.08 },
-      { x: x + radius * 0.42, y: y + radius * 0.28 },
-      { x: x + radius * 0.34, y: y + radius * 0.98 },
-      { x, y: y + radius * 0.68 },
-      { x: x - radius * 0.34, y: y + radius * 0.98 },
-      { x: x - radius * 0.42, y: y + radius * 0.28 },
-      { x: x - radius * span, y: y + radius * 0.08 },
-      { x: x - radius * 0.26, y: y - radius * 0.44 },
+      { x: x + skew * 0.12, y: py(-radius * 1.22 * tail) },
+      { x: x + radius * 0.26 + skew * 0.25, y: py(-radius * 0.44) },
+      { x: x + radius * span + skew, y: py(radius * 0.08) },
+      { x: x + radius * 0.42, y: py(radius * 0.28) },
+      { x: x + radius * 0.34, y: py(radius * 0.98) },
+      { x, y: py(radius * 0.68) },
+      { x: x - radius * 0.34, y: py(radius * 0.98) },
+      { x: x - radius * 0.42, y: py(radius * 0.28) },
+      { x: x - radius * span + skew, y: py(radius * 0.08) },
+      { x: x - radius * 0.26 + skew * 0.25, y: py(-radius * 0.44) },
     ];
     layer.polygon({ points, color, border: type === "elite" ? "#ffd36a" : "#f3c8b4", z });
-    layer.line({ x1: x, y1: y - radius * 0.72, x2: x, y2: y + radius * 0.54, width: Math.max(2, radius * 0.12), color: "#f7d7c4", opacity: 0.42, z: z + 1 });
-    if (type === "spinner") {
-      layer.line({ x1: x - radius * 0.88, y1: y - radius * 0.12, x2: x + radius * 0.88, y2: y + radius * 0.12, width: 3, color: "#ffe29a", z: z + 2 });
+    layer.line({ x1: x + skew * 0.1, y1: py(-radius * 0.72), x2: x, y2: py(radius * 0.54), width: Math.max(2, radius * 0.12), color: visual.stripe || "#f7d7c4", opacity: 0.72, z: z + 1 });
+    if (["twin-boom", "heavy-wing", "ace"].includes(silhouette)) {
+      for (const side of [-1, 1]) layer.rect({ x: x + side * radius * 0.42 - radius * 0.1, y: facing > 0 ? py(radius * 0.08) : py(radius * 0.7), width: radius * 0.2, height: radius * 0.62, color: darkenHex(color, 0.36), border: visual.stripe || "#d7aa78", z: z + 1 });
     }
-    layer.circle({ x, y: y - radius * 0.18, radius: Math.max(3.2, radius * 0.22), color: type === "sniper" ? "#63d8ff" : "#ffd36a", border: COLORS.battleInk, z: z + 2 });
+    if (silhouette === "disc-wing") layer.circle({ x, y, radius: radius * 0.58, color: darkenHex(color, 0.12), opacity: 0.75, border: visual.stripe, z: z + 1 });
+    if (silhouette === "cranked-wing") {
+      layer.line({ x1: x - radius * 1.08, y1: py(radius * 0.1), x2: x - radius * 0.44, y2: py(-radius * 0.35), width: 4, color: visual.stripe, z: z + 1 });
+      layer.line({ x1: x + radius * 1.08, y1: py(radius * 0.1), x2: x + radius * 0.44, y2: py(-radius * 0.35), width: 4, color: visual.stripe, z: z + 1 });
+    }
+    if (type === "spinner") {
+      layer.line({ x1: x - radius * 0.88, y1: py(-radius * 0.12), x2: x + radius * 0.88, y2: py(radius * 0.12), width: 3, color: "#ffe29a", z: z + 2 });
+    }
+    layer.circle({ x, y: py(-radius * 0.18), radius: Math.max(3.2, radius * 0.22), color: type === "sniper" ? "#63d8ff" : "#ffd36a", border: COLORS.battleInk, z: z + 2 });
   }
 
   drawBoss(layer, combat, ox, oy) {
@@ -929,8 +959,20 @@ export class GameRenderer {
       layer.circle({ x: effect.x + ox, y: effect.y + oy, radius: 27 + (1 - opacity) * 22, color: "#ffcc54", opacity: opacity * 0.5, border: "#fff3b0", z: 3 });
       return;
     }
-    this.drawAircraft(layer, boss.x + ox, boss.y + oy, 58, boss.phase === 3 ? "#b63f48" : "#4b7183", "elite", 1);
-    layer.circle({ x: boss.x + ox, y: boss.y - 12 + oy, radius: 13, color: boss.phase === 3 ? "#ffcc54" : "#50c9e8", border: "#fff3b0", z: 4 });
+    const x = boss.x + ox;
+    const y = boss.y + oy;
+    const body = boss.phase === 3 ? darkenHex(boss.accent, 0.3) : "#365665";
+    const span = boss.silhouette === "trident" ? 92 : boss.silhouette === "ring-carrier" ? 84 : 72;
+    const opacity = boss.mechanic === "cloak" ? 0.48 + (1 - boss.cloak) * 0.5 : 1;
+    layer.polygon({ points: [{ x, y: y + 72 }, { x: x + 28, y: y + 34 }, { x: x + span, y: y - 8 }, { x: x + 42, y: y - 34 }, { x: x + 26, y: y - 62 }, { x, y: y - 44 }, { x: x - 26, y: y - 62 }, { x: x - 42, y: y - 34 }, { x: x - span, y: y - 8 }, { x: x - 28, y: y + 34 }], color: body, opacity, border: boss.accent, z: 1 });
+    if (boss.silhouette === "ring-carrier") layer.circle({ x, y: y + 4, radius: 42, color: "#071a28", opacity: 0.38, border: boss.accent, z: 2 });
+    if (boss.silhouette === "trident") for (const dx of [-34, 0, 34]) layer.line({ x1: x + dx * 0.45, y1: y + 24, x2: x + dx, y2: y + 78, width: 8, color: boss.accent, opacity: 0.76, z: 2 });
+    layer.circle({ x, y: y + 12, radius: 13 + boss.phase * 2, color: boss.phase === 3 ? "#ffcc54" : boss.accent, border: "#fff3b0", z: 4 });
+    if (boss.telegraph) {
+      const pulse = 28 + (0.58 - boss.telegraph.timer) * 70;
+      layer.circle({ x, y: y + 8, radius: pulse, color: boss.accent, opacity: 0.05, border: "#ff6b58", z: 5 });
+      layer.line({ x1: x, y1: y + 20, x2: combat.player.x + ox, y2: combat.player.y + oy, width: 2.5, color: "#ff6b58", opacity: 0.62, z: 5 });
+    }
     for (const [key, part] of Object.entries(boss.parts)) {
       const x = boss.x + (key === "left" ? -55 : 55) + ox;
       layer.circle({ x, y: boss.y + 16 + oy, radius: 20, color: part.destroyed ? "#333b3f" : "#c47b22", border: "#fff0b5", z: 3 });
@@ -1022,6 +1064,13 @@ export class GameRenderer {
     layer.text(`${weaponText} · ${passiveStatus}`, { x: healthX, y: layout.hud.y + 44, width: healthWidth, height: 13, color: fighter.accent, fontSize: 7, weight: 900, z: 21 });
     this.button(layer, layout.pause, "暂停", false, "surface", 24, state.uiPress === "pause");
 
+    const map = BATTLE_MAPS[state.mapId];
+    const cadence = battleCadence(combat.elapsed);
+    const situationY = layout.hud.y + layout.hud.height + 7;
+    if (!combat.boss && !combat.mission) {
+      layer.text(`${cadence.label} · ${map.objective}`, { x: 14, y: situationY, width: this.width - 28, height: 18, color: map.accent, fontSize: 7.5, align: "center", weight: 850, z: 21 });
+    }
+
     const labels = { transform: [combat.transformed ? "强袭" : "变身", combat.transformed ? combat.transformTime.toFixed(1) : `${combat.transformCores}/3`] };
     Object.values(layout.actions).forEach((rect) => {
       const active = rect.id === "transform" && (combat.transformed || combat.transformCores >= 3);
@@ -1046,9 +1095,15 @@ export class GameRenderer {
       const x = (this.width - width) / 2;
       const y = layout.hud.y + layout.hud.height + 8;
       layer.rect({ x, y, width, height: 38, color: COLORS.battleInk, opacity: 0.94, border: "#874c51", z: 20 });
-      layer.text(`${combat.boss.name} · 阶段 ${combat.boss.phase}`, { x: x + 8, y: y + 3, width: width - 16, height: 16, color: COLORS.ink, fontSize: 8, align: "center", weight: 900, z: 21 });
+      layer.text(`${combat.boss.name} · ${combat.boss.title} · 阶段 ${combat.boss.phase}`, { x: x + 8, y: y + 3, width: width - 16, height: 16, color: COLORS.ink, fontSize: 7.5, align: "center", weight: 900, z: 21 });
       layer.rect({ x: x + 12, y: y + 23, width: width - 24, height: 6, color: "#6f3836", z: 21 });
       layer.rect({ x: x + 12, y: y + 23, width: (width - 24) * clamp(combat.boss.health / combat.boss.maxHealth, 0, 1), height: 6, color: "#ef6b55", z: 22 });
+      const partWidth = (width - 30) / 2;
+      for (const [index, key] of ["left", "right"].entries()) {
+        const part = combat.boss.parts[key];
+        const px = x + 12 + index * (partWidth + 6);
+        layer.line({ x1: px, y1: y + 33, x2: px + partWidth * clamp(part.health / part.maxHealth, 0, 1), y2: y + 33, width: 2, color: part.destroyed ? COLORS.soft : combat.boss.accent, opacity: 0.8, z: 22 });
+      }
     }
 
     if (combat.mission) {

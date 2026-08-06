@@ -4,7 +4,7 @@ import { ResourceManager } from "../platform/resource-manager.js";
 import { GameApp } from "./game-app.js";
 
 export async function bootstrap() {
-  const runtime = createRuntime();
+  const runtime = await createRuntime();
   const state = createInitialState(runtime.getStorage(STORAGE_KEY, {}));
   const resources = new ResourceManager(runtime);
   resources.preloadLikely();

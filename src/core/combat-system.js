@@ -9,14 +9,16 @@ import {
   TRANSFORM_DURATION,
   airdropRewardSpec,
   assaultFireSpec,
+  battleCadence,
   canEnterCoreTransform,
   combatPhase,
+  formationPattern,
   laserModeSpec,
   projectileBudget,
   toolModeSpec,
 } from "../content/gameplay-rules.js";
 import { MINI_MISSIONS, coasterMotion, connectedChain, isInsideCarrierDeck, nextMiniMission, ringContainsPlayer } from "../content/mini-missions.js";
-import { ENEMY_CONFIGS, bossSpec, difficultyFromPerformance, enemyTypeForSpawn } from "./enemy-config.js";
+import { ENEMY_CONFIGS, ENEMY_VISUALS, bossSpec, difficultyFromPerformance, enemyTypeForSpawn } from "./enemy-config.js";
 import { ObjectPool } from "./object-pool.js";
 
 const PICKUP_COLORS = {
@@ -691,6 +693,7 @@ export class CombatSystem {
     const enemyType = type || enemyTypeForSpawn(state.elapsed, state.wave, ++state.spawnCount, this.random);
     const config = ENEMY_CONFIGS[enemyType] || ENEMY_CONFIGS.scout;
     const health = config.health(state.wave);
+    const visual = ENEMY_VISUALS[enemyType] || ENEMY_VISUALS.scout;
     return this.acquire("enemies", {
       id: state.nextEntityId++,
       type: enemyType,
@@ -709,24 +712,58 @@ export class CombatSystem {
       color: config.color,
       hitFlash: 0,
       marked: false,
+      bank: 0,
+      visual,
+      damageSmoke: 0,
     });
+  }
+
+  spawnFormation() {
+    const pattern = formationPattern(this.state.formationIndex || 0, this.width);
+    this.state.formationIndex = (this.state.formationIndex || 0) + 1;
+    const room = Math.max(0, 14 - this.state.entities.enemies.length);
+    pattern.units.slice(0, room).forEach((unit, index) => {
+      const enemy = this.spawnEnemy(unit.type, clamp(unit.x, 24, this.width - 24));
+      enemy.y = unit.y;
+      enemy.drift = unit.drift;
+      enemy.formationSlot = index;
+    });
+    if (room > 0) {
+      // A formation is one spawn decision. Advance the counter so the modulo
+      // trigger cannot select the same formation again on every timer tick.
+      this.state.spawnCount += 1;
+      this.notify(pattern.name, `${Math.min(room, pattern.units.length)} 机编队进入战区`, 1.2);
+    }
   }
 
   updateEnemies(dt) {
     const state = this.state;
     if (state.boss || state.pendingMissionId || state.airdrop?.choiceOpen) return;
     const phase = combatPhase(state.elapsed);
+    const cadence = battleCadence(state.elapsed);
     state.spawnTimer -= dt;
     if (state.spawnTimer <= 0) {
       const base = phase === "identify" ? 0.68 : phase === "learn" ? 0.54 : phase === "expand" ? 0.43 : 0.34;
       const density = state.difficulty * (state.recentHitTime > 0 ? 0.94 : 1);
-      state.spawnTimer = Math.max(0.18, base / density - Math.min(0.16, state.wave * 0.01));
-      this.spawnEnemy();
+      state.spawnTimer = Math.max(0.2, base * cadence.spawnScale / density - Math.min(0.14, state.wave * 0.009));
+      if (cadence.id === "respite") {
+        if (state.entities.enemies.length < 3) this.spawnEnemy("scout");
+      } else if (["assault", "climax"].includes(cadence.id) && state.spawnCount > 0 && state.spawnCount % 12 === 0) this.spawnFormation();
+      else if (state.entities.enemies.length < 14) this.spawnEnemy(cadence.id === "climax" && this.random() < 0.32 ? "elite" : null);
     }
     for (let index = state.entities.enemies.length - 1; index >= 0; index -= 1) {
       const enemy = state.entities.enemies[index];
-      enemy.y += enemy.speed * dt;
-      enemy.x += (enemy.drift + Math.sin(state.elapsed * 1.8 + enemy.phase) * 18) * dt;
+      const visual = enemy.visual || ENEMY_VISUALS[enemy.type] || ENEMY_VISUALS.scout;
+      const maneuver = enemy.type === "fighter" ? Math.sin(state.elapsed * 3.1 + enemy.phase) * 46
+        : enemy.type === "scout" ? Math.sin(state.elapsed * 4.2 + enemy.phase) * 34
+          : enemy.type === "spinner" ? Math.sin(state.elapsed * 2.8 + enemy.phase) * 28
+            : enemy.type === "elite" ? Math.sin(state.elapsed * 2.4 + enemy.phase) * 54
+              : Math.sin(state.elapsed * 1.5 + enemy.phase) * 14;
+      const forwardScale = enemy.type === "sniper" && enemy.y > this.height * 0.24 ? 0.28 : 1;
+      enemy.y += enemy.speed * forwardScale * dt;
+      enemy.x += (enemy.drift + maneuver) * dt;
+      enemy.bank += (clamp((enemy.drift + maneuver) / 150, -visual.bank, visual.bank) - enemy.bank) * Math.min(1, dt * 7);
+      enemy.damageSmoke = clamp(1 - enemy.health / enemy.maxHealth, 0, 1);
       enemy.x = clamp(enemy.x, enemy.radius, this.width - enemy.radius);
       for (const structure of state.mapStructures) {
         const resolved = resolveCircleFromStructure(enemy, structure);
@@ -874,7 +911,7 @@ export class CombatSystem {
 
   spawnBoss(wave = this.state.wave) {
     if (this.state.boss) return null;
-    const spec = bossSpec(wave);
+    const spec = bossSpec(wave, this.mapId);
     this.state.boss = {
       ...spec,
       x: this.width / 2,
@@ -883,6 +920,9 @@ export class CombatSystem {
       phase: 1,
       fireTimer: 1,
       drift: 1,
+      telegraph: null,
+      rotation: 0,
+      cloak: 0,
       parts: {
         left: { health: spec.weaponHealth, maxHealth: spec.weaponHealth, destroyed: false },
         right: { health: spec.weaponHealth, maxHealth: spec.weaponHealth, destroyed: false },
@@ -901,12 +941,40 @@ export class CombatSystem {
     const boss = state.boss;
     if (!boss) return;
     boss.x += boss.drift * 54 * dt;
+    boss.rotation += dt * (boss.phase === 3 ? 0.65 : 0.25);
+    boss.cloak = boss.mechanic === "cloak" ? (Math.sin(state.elapsed * 1.7) + 1) * 0.5 : 0;
     if (boss.x < boss.radius + 12 || boss.x > this.width - boss.radius - 12) boss.drift *= -1;
     boss.fireTimer -= dt;
-    if (boss.fireTimer <= 0) {
+    if (boss.telegraph) {
+      boss.telegraph.timer -= dt;
+      if (boss.telegraph.timer <= 0) {
+        this.fireBossAttack(boss);
+        boss.telegraph = null;
+        boss.fireTimer = Math.max(0.72, (1.65 - boss.phase * 0.18) / state.difficulty);
+      }
+    } else if (boss.fireTimer <= 0) {
+      boss.telegraph = { kind: boss.warning, timer: 0.58 };
+      this.notify(boss.warning, boss.phase === 3 ? "核心高能反应" : "观察红色预警区域", 0.8);
+      this.play("bossWarning", { mechanic: boss.mechanic, phase: boss.phase });
+    }
+  }
+
+  fireBossAttack(boss) {
       const leftActive = !boss.parts.left.destroyed;
       const rightActive = !boss.parts.right.destroyed;
-      if (boss.phase === 1) {
+      if (boss.mechanic === "orbital" && boss.phase >= 2) {
+        for (const offset of [-0.24, 0, 0.24]) this.spawnEnemyProjectile({ x: boss.x, y: boss.y + 35, angle: this.aimedAngle(boss, offset), speed: 180, radius: 8, kind: "rocket", color: boss.accent, damage: 16 });
+        this.fireRing(boss, 8 + boss.phase * 2, 205, boss.accent);
+      } else if (boss.mechanic === "beam" && boss.phase >= 2) {
+        this.fireBossFan(boss.x, boss.y + 30, 3 + boss.phase * 2, 0.2, 330);
+        this.fireRing(boss, 6 + boss.phase * 2, 195, boss.accent);
+      } else if (boss.mechanic === "cloak" && boss.phase >= 2) {
+        this.fireBossFan(boss.x - 36, boss.y + 24, 4, 0.08, 390);
+        this.fireBossFan(boss.x + 36, boss.y + 24, 4, 0.08, 390);
+      } else if (boss.mechanic === "missile" && boss.phase >= 2) {
+        for (const side of [-1, 1]) this.spawnEnemyProjectile({ x: boss.x + side * 48, y: boss.y + 24, angle: this.aimedAngle(boss, side * 0.2), speed: 205, radius: 7, kind: "rocket", color: boss.accent, damage: 15 });
+        this.fireBossFan(boss.x, boss.y + 34, 5, 0.12, 270);
+      } else if (boss.phase === 1) {
         if (leftActive) this.fireBossFan(boss.x - 42, boss.y + 28, 5, 0.13, 240);
         if (rightActive) this.fireBossFan(boss.x + 42, boss.y + 28, 5, 0.13, 240);
       } else if (boss.phase === 2) {
@@ -916,9 +984,7 @@ export class CombatSystem {
         this.fireBossFan(boss.x, boss.y + 34, 7 - Number(!leftActive) - Number(!rightActive), 0.12, 300);
         if (leftActive || rightActive) this.fireRing(boss, 15 - Number(!leftActive) * 4 - Number(!rightActive) * 4, 250, "#e64b45");
       }
-      boss.fireTimer = Math.max(0.62, (1.45 - boss.phase * 0.18) / state.difficulty);
       this.play("bossFire", { phase: boss.phase });
-    }
   }
 
   fireBossFan(x, y, count, spread, speed) {

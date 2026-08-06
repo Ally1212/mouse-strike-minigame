@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import * as THREE from "three-platformize";
 
 function colorValue(value) {
   if (value instanceof THREE.Color) return value;
@@ -10,7 +10,7 @@ function colorValue(value) {
 
 function createTextTexture(canvas) {
   const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.encoding = THREE.LinearEncoding;
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.generateMipmaps = false;

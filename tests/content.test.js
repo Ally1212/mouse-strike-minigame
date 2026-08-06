@@ -3,7 +3,7 @@ import { FIGHTER_ORDER, FIGHTERS, WINGMAN_SPECS, getToolModes } from "../src/con
 import { BATTLE_MAPS, MAP_ORDER, createMapStructures } from "../src/content/battle-maps.js";
 import { BATTLE_VISUALS, environmentDensity } from "../src/content/battle-visuals.js";
 import { MINI_MISSION_ORDER, coasterMotion } from "../src/content/mini-missions.js";
-import { TRANSFORM_CORE_COST, TRANSFORM_DURATION, canEnterCoreTransform } from "../src/content/gameplay-rules.js";
+import { TRANSFORM_CORE_COST, TRANSFORM_DURATION, battleCadence, canEnterCoreTransform } from "../src/content/gameplay-rules.js";
 
 describe("migrated content contract", () => {
   test("contains nine distinct fighters in the approved order", () => {
@@ -35,7 +35,10 @@ describe("migrated content contract", () => {
       expect(createMapStructures(id, 375, 812).length).toBeGreaterThanOrEqual(8);
       expect(BATTLE_MAPS[id].description.length).toBeGreaterThan(12);
       expect(BATTLE_MAPS[id].feature.split("·").length).toBeGreaterThanOrEqual(3);
+      expect(BATTLE_MAPS[id].objective.length).toBeGreaterThanOrEqual(12);
+      expect(BATTLE_MAPS[id].bossId).toBeTruthy();
     });
+    expect(new Set(MAP_ORDER.map((id) => BATTLE_MAPS[id].bossId)).size).toBe(5);
   });
 
   test("gives every map a distinct layered battlefield identity", () => {
@@ -43,9 +46,16 @@ describe("migrated content contract", () => {
     expect(new Set(MAP_ORDER.map((id) => BATTLE_VISUALS[id].terrain)).size).toBe(5);
     MAP_ORDER.forEach((id) => {
       expect(BATTLE_VISUALS[id].landmarks).toHaveLength(3);
+      expect(BATTLE_VISUALS[id].weather).toBeTruthy();
+      expect(BATTLE_VISUALS[id].mechanic).toBeTruthy();
+      expect(BATTLE_VISUALS[id].warning).toMatch(/^#/);
       expect(environmentDensity(id, "low")).toBeLessThan(environmentDensity(id, "high"));
       expect(environmentDensity(id, "low")).toBeGreaterThanOrEqual(3);
     });
+  });
+
+  test("cycles through readable combat cadence phases", () => {
+    expect([0, 6, 18, 29, 34].map((time) => battleCadence(time).id)).toEqual(["establish", "assault", "pressure", "respite", "climax"]);
   });
 
   test("retains five mini missions and coaster phases", () => {

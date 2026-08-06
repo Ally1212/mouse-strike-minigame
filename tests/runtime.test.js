@@ -17,6 +17,12 @@ describe("WeChat runtime adapter", () => {
       cancelAnimationFrame: vi.fn(),
     };
     const wx = {
+      getSystemInfoSync: () => ({
+        windowWidth: 375,
+        windowHeight: 812,
+        pixelRatio: 3,
+        platform: "ios",
+      }),
       getWindowInfo: () => ({
         windowWidth: 375,
         windowHeight: 812,
@@ -30,6 +36,9 @@ describe("WeChat runtime adapter", () => {
       onShow: (listener) => { callbacks.show = listener; },
       onHide: (listener) => { callbacks.hide = listener; },
       onWindowResize: (listener) => { callbacks.resize = listener; },
+      onTouchStart: vi.fn(),
+      onTouchMove: vi.fn(),
+      onTouchEnd: vi.fn(),
       onMemoryWarning: (listener) => { callbacks.memory = listener; },
       offMemoryWarning: vi.fn(),
       onAudioInterruptionBegin: (listener) => { callbacks.audioBegin = listener; },
@@ -47,9 +56,11 @@ describe("WeChat runtime adapter", () => {
     };
     vi.stubGlobal("wx", wx);
     vi.stubGlobal("GameGlobal", {});
+    vi.stubGlobal("requestAnimationFrame", canvas.requestAnimationFrame);
+    vi.stubGlobal("cancelAnimationFrame", canvas.cancelAnimationFrame);
 
     const { createRuntime } = await import("../src/platform/runtime.js");
-    const runtime = createRuntime();
+    const runtime = await createRuntime();
     expect(runtime.isWx).toBe(true);
     expect(runtime.viewport).toMatchObject({
       width: 375,

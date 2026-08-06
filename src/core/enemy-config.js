@@ -26,6 +26,27 @@ export const ENEMY_CONFIGS = {
   elite: { name: "重装精英", radius: 31, health: (wave) => 14 + wave * 2.2, speed: 62, drift: 30, score: 780, fire: "elite", color: "#c47b22" },
 };
 
+export const ENEMY_VISUALS = {
+  scout: { silhouette: "dart", role: "侦察", engines: 1, stripe: "#ff9b78", bank: 0.28 },
+  gunner: { silhouette: "twin-boom", role: "压制", engines: 2, stripe: "#ffb07b", bank: 0.14 },
+  spinner: { silhouette: "disc-wing", role: "弹幕", engines: 2, stripe: "#ffd06b", bank: 0.38 },
+  sniper: { silhouette: "needle", role: "狙击", engines: 1, stripe: "#72d9ff", bank: 0.18 },
+  bomber: { silhouette: "heavy-wing", role: "轰炸", engines: 4, stripe: "#e898bd", bank: 0.08 },
+  mineLayer: { silhouette: "cranked-wing", role: "布雷", engines: 2, stripe: "#d9b275", bank: 0.12 },
+  splitter: { silhouette: "manta", role: "蜂群", engines: 3, stripe: "#ffe27a", bank: 0.2 },
+  fighter: { silhouette: "swept", role: "截击", engines: 2, stripe: "#ff786f", bank: 0.34 },
+  helicopter: { silhouette: "rotor", role: "对地", engines: 2, stripe: "#8ed5a0", bank: 0.16 },
+  elite: { silhouette: "ace", role: "王牌", engines: 2, stripe: "#ffd56d", bank: 0.42 },
+};
+
+const BOSS_PROFILES = {
+  usa: { id: "fortress-eagle", name: "堡垒鹰", title: "陆基空天指挥机", silhouette: "command-wing", accent: "#e2ad62", warning: "雷达锁定", mechanic: "radar" },
+  pacific: { id: "tsunami-wing", name: "海啸", title: "重型舰载飞翼", silhouette: "carrier-wing", accent: "#62d5df", warning: "反舰齐射", mechanic: "missile" },
+  arctic: { id: "white-night-ghost", name: "白夜幽灵", title: "隐身截击母机", silhouette: "stealth-diamond", accent: "#8ff1dc", warning: "光学隐身", mechanic: "cloak" },
+  "sky-corridor": { id: "sky-ring", name: "天环", title: "环翼空中母舰", silhouette: "ring-carrier", accent: "#77cfff", warning: "能源扫射", mechanic: "beam" },
+  "meteor-rift": { id: "doomsday-trident", name: "末日三叉戟", title: "轨道轰炸平台", silhouette: "trident", accent: "#ff906d", warning: "轨道轰炸", mechanic: "orbital" },
+};
+
 export function enemyTypeForSpawn(elapsed, wave, spawnCount, random = Math.random) {
   const phase = combatPhase(elapsed);
   if (phase === "identify") return "scout";
@@ -52,10 +73,12 @@ export function difficultyFromPerformance({ current = 1, consecutiveDeaths = 0, 
   return Math.max(0.82, Math.min(1.22, next));
 }
 
-export function bossSpec(wave) {
+export function bossSpec(wave, mapId = "usa") {
   const health = 280 + wave * 48;
+  const profile = BOSS_PROFILES[mapId] || BOSS_PROFILES.usa;
   return {
-    name: `天穹堡垒 MK-${Math.ceil(wave / 4)}`,
+    ...profile,
+    name: `${profile.name} MK-${Math.ceil(wave / 4)}`,
     radius: 64,
     health,
     weaponHealth: Math.round(health * 0.24),

@@ -13,13 +13,13 @@
     "test:endurance": "node --expose-gc scripts/endurance.mjs",
     "check": "npm test && npm run test:e2e && npm run test:endurance && npm run build && node scripts/acceptance.mjs"
   },
-  "dependencies": {
-    "three": "0.185.1"
-  },
   "devDependencies": {
     "@playwright/test": "1.55.0",
     "esbuild": "0.28.1",
     "vite": "8.1.5",
     "vitest": "3.2.4"
+  },
+  "dependencies": {
+    "three-platformize": "1.133.3"
   }
 }

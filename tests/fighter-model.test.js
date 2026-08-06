@@ -3,6 +3,16 @@ import { FIGHTER_ORDER, FIGHTERS } from "../src/content/fighter-profiles.js";
 import { createFighterModel, updateFighterModel } from "../src/render/fighter-model.js";
 
 describe("procedural flying robot transformation forms", () => {
+  test("fighter materials remain compatible with WebGL 1 devices", () => {
+    const model = createFighterModel(FIGHTERS.hypersonic);
+    const materials = [];
+    model.traverse((part) => {
+      if (part.isMesh && part.material) materials.push(part.material);
+    });
+    expect(materials.length).toBeGreaterThan(0);
+    expect(materials.every((item) => item.isMeshLambertMaterial)).toBe(true);
+  });
+
   test.each(FIGHTER_ORDER)("%s includes an integrated head, chest and two flight-swept arms", (fighterId) => {
     const model = createFighterModel(FIGHTERS[fighterId]);
     expect(model.userData.parts.aerial.some((part) => part.userData.aerialKind === "chest")).toBe(true);

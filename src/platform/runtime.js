@@ -1,3 +1,6 @@
+import { PLATFORM } from "three-platformize";
+import { BrowserPlatform } from "three-platformize/src/BrowserPlatform/index.js";
+
 const globalScope = typeof GameGlobal !== "undefined" ? GameGlobal : globalThis;
 const wxApi = typeof wx !== "undefined" ? wx : null;
 
@@ -24,7 +27,7 @@ function wxViewport() {
   };
 }
 
-export function createRuntime() {
+export async function createRuntime() {
   const isWx = Boolean(wxApi);
   const viewport = isWx ? wxViewport() : browserViewport();
   let canvas;
@@ -42,6 +45,10 @@ export function createRuntime() {
     canvas.style.height = `${viewport.height}px`;
     canvas.style.touchAction = "none";
   }
+  const renderingPlatform = isWx
+    ? new (await import("three-platformize/src/WechatGamePlatform/index.js")).WechatGamePlatform(canvas, viewport.width, viewport.height)
+    : new BrowserPlatform();
+  PLATFORM.set(renderingPlatform);
 
   const listeners = { show: new Set(), hide: new Set(), resize: new Set() };
   const call = (type, payload) => listeners[type].forEach((listener) => listener(payload));

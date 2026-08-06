@@ -3,7 +3,7 @@ import { FIGHTERS, FIGHTER_ORDER } from "../src/content/fighter-profiles.js";
 import { toolModeSpec } from "../src/content/gameplay-rules.js";
 import { fighterCombatScale, fighterWeaponOrigins } from "../src/content/fighter-geometry.js";
 import { CombatSystem, x10TransformStage } from "../src/core/combat-system.js";
-import { difficultyFromPerformance, ENEMY_ORDER } from "../src/core/enemy-config.js";
+import { bossSpec, difficultyFromPerformance, ENEMY_ORDER } from "../src/core/enemy-config.js";
 import { createCombatState } from "../src/core/game-state.js";
 import { createRandom } from "../src/core/random.js";
 
@@ -23,6 +23,40 @@ function createSystem(fighterId = "j20", mapId = "usa", seed = 42) {
 }
 
 describe("complete combat migration", () => {
+  test("gives all five maps a distinct multi-stage boss", () => {
+    const mapIds = ["usa", "pacific", "arctic", "sky-corridor", "meteor-rift"];
+    const bosses = mapIds.map((mapId) => bossSpec(4, mapId));
+    expect(new Set(bosses.map((boss) => boss.id)).size).toBe(5);
+    expect(new Set(bosses.map((boss) => boss.mechanic)).size).toBe(5);
+    bosses.forEach((boss) => expect(boss.title).toBeTruthy());
+  });
+
+  test("formation spawning respects the cap and advances its trigger", () => {
+    const { system, combat } = createSystem();
+    combat.spawnCount = 12;
+    system.spawnFormation();
+    expect(combat.entities.enemies.length).toBeLessThanOrEqual(14);
+    expect(combat.spawnCount).toBeGreaterThan(12);
+    combat.entities.enemies.forEach((enemy) => {
+      expect(enemy.visual).toBeTruthy();
+      expect(enemy.bank).toBe(0);
+      expect(enemy.damageSmoke).toBe(0);
+    });
+  });
+
+  test("boss attack waits for its warning telegraph", () => {
+    const { system, combat, events } = createSystem("j20", "pacific");
+    const boss = system.spawnBoss(4);
+    boss.fireTimer = 0;
+    system.updateBoss(0.01);
+    expect(boss.telegraph).toBeTruthy();
+    expect(combat.entities.enemyProjectiles).toHaveLength(0);
+    system.updateBoss(0.6);
+    expect(boss.telegraph).toBeNull();
+    expect(combat.entities.enemyProjectiles.length).toBeGreaterThan(0);
+    expect(events.some((event) => event.type === "sound" && event.name === "bossWarning")).toBe(true);
+  });
+
   test("requires three cores and ends transformation after ten gameplay seconds", () => {
     const { system, combat } = createSystem();
     expect(system.tryTransform()).toBe(false);

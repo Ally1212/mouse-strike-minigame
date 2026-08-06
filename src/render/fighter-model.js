@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import * as THREE from "three-platformize";
 import { fighterAirframeSpec } from "../content/fighter-geometry.js";
 
 const MOTIONS = {
@@ -50,13 +50,13 @@ const TRANSFORM_SEQUENCES = {
 };
 
 function material(color, metalness = 0.78, roughness = 0.28, emissive = 0x000000, intensity = 0) {
-  return new THREE.MeshPhysicalMaterial({
-    color,
-    metalness,
-    roughness,
-    clearcoat: 0.42,
-    clearcoatRoughness: 0.19,
-    emissive,
+  const baseColor = new THREE.Color(color);
+  const emissiveColor = new THREE.Color(emissive);
+  const sheen = Math.max(0, Math.min(1, metalness * (1 - roughness)));
+  baseColor.lerp(new THREE.Color(0xffffff), sheen * 0.08);
+  return new THREE.MeshLambertMaterial({
+    color: baseColor,
+    emissive: emissiveColor,
     emissiveIntensity: intensity,
     side: THREE.DoubleSide,
   });

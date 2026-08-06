@@ -40,6 +40,15 @@ export function combatPhase(elapsed) {
   return "full";
 }
 
+export function battleCadence(elapsed) {
+  const cycle = Math.max(0, Number(elapsed) || 0) % 36;
+  if (cycle < 5) return { id: "establish", spawnScale: 1.25, label: "战区识别" };
+  if (cycle < 17) return { id: "assault", spawnScale: 0.92, label: "编队突入" };
+  if (cycle < 27) return { id: "pressure", spawnScale: 0.72, label: "火力高压" };
+  if (cycle < 33) return { id: "respite", spawnScale: 2.2, label: "战术喘息" };
+  return { id: "climax", spawnScale: 0.62, label: "精英反扑" };
+}
+
 export function projectileBudget(elapsed, options = {}) {
   const phase = combatPhase(elapsed);
   const transformed = Boolean(options.transformed);

@@ -90,6 +90,7 @@ export function createCombatState(fighter, toolModeIndex = 0) {
     fireTimer: 0,
     spawnTimer: 0.05,
     spawnCount: 0,
+    formationIndex: 0,
     nextEntityId: 1,
     bossSpawnedWaves: [],
     mapEventTimer: 6,

@@ -215,7 +215,7 @@ test("九架战机的四种预览完整落在机库安全框内", async ({ page 
   await openGame(page);
   const results = await page.evaluate(async () => {
     const api = globalThis.__mouseStrikeMiniGame;
-    const THREE = await import("/@fs/Users/ziheng/mouse-strike-minigame/node_modules/three/build/three.module.js");
+    const THREE = await import("/@fs/Users/ziheng/mouse-strike-minigame/node_modules/three-platformize/build/three.module.js");
     const { FIGHTER_ORDER } = await import("/src/content/fighter-profiles.js");
     const { computeHangarLayout } = await import("/src/ui/layout.js");
     const layout = computeHangarLayout(api.runtime.viewport.width, api.runtime.viewport.height, api.runtime.viewport.safeArea);

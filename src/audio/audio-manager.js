@@ -37,6 +37,7 @@ const SOUND_SPECS = {
   chain: [120, 0.24, "sawtooth", 0.09],
   structureBreak: [85, 0.22, "square", 0.08],
   bossEnter: [72, 0.65, "sawtooth", 0.13],
+  bossWarning: [330, 0.3, "square", 0.085],
   bossFire: [155, 0.09, "square", 0.05],
   bossPhase: [240, 0.45, "sawtooth", 0.12],
   bossPart: [92, 0.35, "square", 0.12],
@@ -59,6 +60,7 @@ const RETRO_PATTERNS = {
   transform: [[0, 1], [0.1, 1.5], [0.2, 2], [0.3, 2.5]],
   wave: [[0, 1], [0.07, 1.26], [0.14, 1.5]],
   bossEnter: [[0, 1], [0.16, 0.75], [0.32, 0.5]],
+  bossWarning: [[0, 1], [0.1, 1.18], [0.2, 0.84]],
   missionResult: [[0, 1], [0.08, 1.25], [0.16, 1.5]],
 };
 
