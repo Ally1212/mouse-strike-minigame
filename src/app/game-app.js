@@ -475,16 +475,6 @@ export class GameApp {
       this.launchSelectedFighter();
       return;
     }
-    if (id === "mission:start") {
-      this.combatSystem?.beginMission();
-      this.resumeCombat();
-      return;
-    }
-    if (id === "mission:skip") {
-      this.combatSystem?.skipMission();
-      this.resumeCombat();
-      return;
-    }
     if (id.startsWith("airdrop:")) {
       this.combatSystem?.chooseAirdrop(id.slice(8));
       this.resumeCombat();
@@ -555,17 +545,7 @@ export class GameApp {
   handleCombatEvent(event) {
     if (event.type === "sound") this.audio.play(event.name, event.payload);
     else if (event.type === "vibrate" && this.state.settings.haptics) this.runtime.vibrate(event.kind);
-    else if (event.type === "missionPending") {
-      const mission = event.mission;
-      this.pause("mission");
-      this.state.modal = {
-        type: "mission",
-        title: mission.title,
-        height: 380,
-        lines: [`规则：${mission.rule}`, `目标：${mission.objective}`, `奖励：${mission.reward}`],
-        options: [{ id: "mission:start", label: "进入副本" }, { id: "mission:skip", label: "本局跳过" }],
-      };
-    } else if (event.type === "airdropChoice") {
+    else if (event.type === "airdropChoice") {
       this.pause("airdrop");
       const options = [
         { id: "airdrop:defense", label: event.upgraded ? "高级生存补给" : "立即领取生存补给" },
@@ -631,7 +611,7 @@ export class GameApp {
 
   resumeFromBackground() {
     if (this.state.scene !== "combat" || !this.state.paused) return;
-    if (["mission", "airdrop", "upgrade"].includes(this.state.pauseReason) || this.state.modal?.type === "result") return;
+    if (["airdrop", "upgrade"].includes(this.state.pauseReason) || this.state.modal?.type === "result") return;
     this.state.modal = {
       type: "resume",
       title: "战斗已暂停",

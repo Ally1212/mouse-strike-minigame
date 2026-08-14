@@ -1,6 +1,5 @@
 import { MAP_ORDER } from "../content/battle-maps.js";
 import { FIGHTER_ORDER } from "../content/fighter-profiles.js";
-import { MINI_MISSION_ORDER } from "../content/mini-missions.js";
 import { ENEMY_ORDER } from "../core/enemy-config.js";
 
 export function createQaController(app) {
@@ -15,7 +14,6 @@ export function createQaController(app) {
       fighters: [...FIGHTER_ORDER],
       maps: [...MAP_ORDER],
       enemies: [...ENEMY_ORDER],
-      missions: [...MINI_MISSION_ORDER],
       pickups: ["core", "evolution", "trajectory", "health", "barrier", "ally", "meteor-core"],
     },
     selectFighter(fighterId) {
@@ -63,13 +61,6 @@ export function createQaController(app) {
     spawnAirdrop() {
       requireCombat().spawnAirdropCarrier();
       return app.state.combat.airdrop;
-    },
-    startMission(missionId) {
-      if (!MINI_MISSION_ORDER.includes(missionId)) throw new Error(`Unknown mission: ${missionId}`);
-      const system = requireCombat();
-      system.state.pendingMissionId = missionId;
-      system.beginMission(missionId);
-      return system.state.mission;
     },
     clear(kind = "all") {
       const system = requireCombat();

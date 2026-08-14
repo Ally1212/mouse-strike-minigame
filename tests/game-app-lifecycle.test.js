@@ -60,15 +60,13 @@ describe("game app lifecycle", () => {
     expect(app.audio.resume).toHaveBeenCalledTimes(1);
   });
 
-  test("preserves mission and airdrop decisions while backgrounded", () => {
+  test("preserves airdrop decisions while backgrounded", () => {
     const { app } = createAppHarness();
-    for (const reason of ["mission", "airdrop"]) {
-      app.state.paused = true;
-      app.state.pauseReason = reason;
-      app.state.modal = { type: reason };
-      app.resumeFromBackground();
-      expect(app.state.modal.type).toBe(reason);
-    }
+    app.state.paused = true;
+    app.state.pauseReason = "airdrop";
+    app.state.modal = { type: "airdrop" };
+    app.resumeFromBackground();
+    expect(app.state.modal.type).toBe("airdrop");
   });
 
   test("handles system audio interruption and memory warning without resetting combat", () => {

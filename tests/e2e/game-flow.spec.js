@@ -300,7 +300,6 @@ test("武器、被动、变身、自动僚机和双触点操作互不冲突", as
     api.state.combat.elapsed = 15;
     api.state.combat.wingmanCooldown = 0;
     api.state.combat.autoWingmanTimer = 0;
-    api.state.combat.pendingMissionId = "e2e-input-lock";
   });
   await page.evaluate(() => globalThis.__mouseStrikeMiniGame.app.combatSystem.updateAutoWingman(0));
   expect(await page.evaluate(() => globalThis.__mouseStrikeMiniGame.state.combat.entities.allies.length)).toBeGreaterThan(0);

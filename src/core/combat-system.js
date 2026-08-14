@@ -17,7 +17,6 @@ import {
   projectileBudget,
   toolModeSpec,
 } from "../content/gameplay-rules.js";
-import { MINI_MISSIONS, coasterMotion, connectedChain, isInsideCarrierDeck, nextMiniMission, ringContainsPlayer } from "../content/mini-missions.js";
 import { ENEMY_CONFIGS, ENEMY_VISUALS, bossSpec, difficultyFromPerformance, enemyTypeForSpawn } from "./enemy-config.js";
 import { ObjectPool } from "./object-pool.js";
 
@@ -175,23 +174,16 @@ export class CombatSystem {
     this.updatePassiveEffect(delta);
     this.updateAutoWingman(delta);
 
-    if (state.mission) {
-      this.updatePlayerWeapons(delta);
-      this.updateMission(delta);
-      this.updatePlayerProjectiles(delta);
-    } else {
-      this.updateMap(delta);
-      this.updateMeteors(delta);
-      this.updateAirdrop(delta);
-      this.updateEnemies(delta);
-      this.updateBoss(delta);
-      this.updatePlayerWeapons(delta);
-      this.updateAllies(delta);
-      this.updatePlayerProjectiles(delta);
-      this.updateEnemyProjectiles(delta);
-      this.updatePickups(delta);
-      this.checkMissionSchedule();
-    }
+    this.updateMap(delta);
+    this.updateMeteors(delta);
+    this.updateAirdrop(delta);
+    this.updateEnemies(delta);
+    this.updateBoss(delta);
+    this.updatePlayerWeapons(delta);
+    this.updateAllies(delta);
+    this.updatePlayerProjectiles(delta);
+    this.updateEnemyProjectiles(delta);
+    this.updatePickups(delta);
     this.updateParticles(delta);
     this.state.quality.pooled = Object.values(this.pools).reduce((sum, pool) => sum + pool.free.length, 0);
   }
@@ -327,7 +319,7 @@ export class CombatSystem {
 
   updatePassive(dt) {
     const state = this.state;
-    if (state.ended || state.mission || state.pendingUpgrade) return false;
+    if (state.ended || state.pendingUpgrade) return false;
     state.passiveTimer = Math.max(0, state.passiveTimer - dt * Math.min(2.2, this.passiveChargeRate()));
     if (state.passiveTimer > 0) return false;
     return this.triggerPassive();
@@ -434,7 +426,7 @@ export class CombatSystem {
   updateAutoWingman(dt) {
     const state = this.state;
     state.autoWingmanTimer = Math.max(0, (state.autoWingmanTimer ?? 8) - dt);
-    if (state.autoWingmanTimer > 0 || state.elapsed < 8 || state.wingmanCooldown > 0 || state.wingmanTime > 0 || state.mission || state.boss) return;
+    if (state.autoWingmanTimer > 0 || state.elapsed < 8 || state.wingmanCooldown > 0 || state.wingmanTime > 0 || state.boss) return;
     if (this.summonWingman()) state.autoWingmanTimer = 28;
   }
 
@@ -657,11 +649,6 @@ export class CombatSystem {
       if (!segments.some((segment) => distanceToSegment(meteor.x, meteor.y, segment) <= meteor.radius + beam.width)) continue;
       this.damageMeteor(index, beam.damagePerSecond * dt * 1.4, true);
     }
-    if (state.mission?.id === "mothership") {
-      for (const part of state.mission.parts) {
-        if (!part.destroyed && segments.some((segment) => distanceToSegment(part.x, part.y, segment) <= part.radius + beam.width)) this.damageMissionPart(part, beam.damagePerSecond * dt * 1.25);
-      }
-    }
   }
 
   updateNuclear(dt) {
@@ -738,7 +725,7 @@ export class CombatSystem {
 
   updateEnemies(dt) {
     const state = this.state;
-    if (state.boss || state.pendingMissionId || state.airdrop?.choiceOpen) return;
+    if (state.boss || state.airdrop?.choiceOpen) return;
     const phase = combatPhase(state.elapsed);
     const cadence = battleCadence(state.elapsed);
     state.spawnTimer -= dt;
@@ -937,7 +924,7 @@ export class CombatSystem {
 
   updateBoss(dt) {
     const state = this.state;
-    if (!state.boss && state.wave % 4 === 0 && !state.bossSpawnedWaves.includes(state.wave) && !state.mission && !state.pendingMissionId) this.spawnBoss(state.wave);
+    if (!state.boss && state.wave % 4 === 0 && !state.bossSpawnedWaves.includes(state.wave)) this.spawnBoss(state.wave);
     const boss = state.boss;
     if (!boss) return;
     boss.x += boss.drift * 54 * dt;
@@ -1085,13 +1072,6 @@ export class CombatSystem {
       bullet.x += bullet.vx * dt;
       bullet.y += bullet.vy * dt;
 
-      if (this.hitMissionTarget(bullet)) {
-        if (bullet.pierce > 0) bullet.pierce -= 1;
-        else {
-          this.releaseAt("playerProjectiles", index);
-          continue;
-        }
-      }
       if (this.hitAirdropCarrier(bullet)) {
         this.releaseAt("playerProjectiles", index);
         continue;
@@ -1727,198 +1707,4 @@ export class CombatSystem {
     return true;
   }
 
-  checkMissionSchedule() {
-    const state = this.state;
-    if (state.pendingMissionId || state.mission || state.boss || state.airdrop?.choiceOpen) return;
-    const completed = [...state.completedMissions, ...state.skippedMissions];
-    const next = nextMiniMission(state.elapsed, completed, false);
-    if (!next) return;
-    state.pendingMissionId = next.id;
-    this.signal("missionPending", { mission: next });
-    this.play("missionAlert");
-  }
-
-  clearForMission() {
-    for (const kind of ["playerProjectiles", "enemyProjectiles", "enemies", "meteors"]) this.clearEntityKind(kind);
-    this.state.laserBeams = [];
-    this.state.pendingLaser = null;
-    this.state.entities.meteorWarnings = [];
-    this.state.boss = null;
-    this.state.airdrop = null;
-  }
-
-  beginMission(missionId = this.state.pendingMissionId) {
-    const spec = MINI_MISSIONS[missionId];
-    if (!spec) return false;
-    this.clearForMission();
-    const mission = { id: missionId, title: spec.title, timer: spec.duration, duration: spec.duration, success: false };
-    if (missionId === "coaster") {
-      Object.assign(mission, { onTrack: 0, targetOnTrack: 8.5, segmentLabel: "弹射起步", laneX: this.width / 2, laneWidth: Math.min(230, this.width * 0.52), cameraRoll: 0, trackSpeed: 1 });
-    } else if (missionId === "rings") {
-      Object.assign(mission, { passed: 0, missed: 0, target: 5, ring: this.createMissionRing(0) });
-    } else if (missionId === "carrier") {
-      Object.assign(mission, { dockTime: 0, carrier: { x: this.width / 2, y: this.height + 120, targetY: this.height * 0.69, width: Math.min(410, this.width * 0.78), height: 190, deckWidth: Math.min(210, this.width * 0.48), deckHeight: 78 } });
-    } else if (missionId === "mothership") {
-      const centerX = this.width / 2;
-      const y = Math.max(145, this.height * 0.24);
-      Object.assign(mission, { parts: [
-        { id: "mother-left", label: "左舷武器舱", x: centerX - Math.min(110, this.width * 0.23), y: y + 18, radius: 30, health: 40, maxHealth: 40, destroyed: false },
-        { id: "mother-core", label: "中央反应堆", x: centerX, y: y - 8, radius: 34, health: 54, maxHealth: 54, destroyed: false },
-        { id: "mother-right", label: "右舷武器舱", x: centerX + Math.min(110, this.width * 0.23), y: y + 18, radius: 30, health: 40, maxHealth: 40, destroyed: false },
-      ] });
-    } else if (missionId === "chain") {
-      Object.assign(mission, { nodes: this.createChainNodes(), chainMax: 0, detonated: 0, chainRadius: 124 });
-    }
-    this.state.mission = mission;
-    this.state.pendingMissionId = null;
-    this.state.player.invulnerable = Math.max(this.state.player.invulnerable, 1);
-    this.notify(`${spec.title} // 开始`, spec.objective, 2);
-    this.play("missionStart", { id: missionId });
-    return true;
-  }
-
-  skipMission(missionId = this.state.pendingMissionId) {
-    if (!missionId || !MINI_MISSIONS[missionId]) return false;
-    this.state.skippedMissions.push(missionId);
-    this.state.missionResults.push({ id: missionId, success: false, detail: "本局跳过" });
-    this.state.pendingMissionId = null;
-    this.notify(`${MINI_MISSIONS[missionId].title} // 已跳过`, "返回主战场", 1.8);
-    this.play("missionResult", { success: false });
-    return true;
-  }
-
-  createMissionRing(index) {
-    const radius = Math.max(36, Math.min(52, this.width * 0.11));
-    const positions = [0.22, 0.72, 0.42, 0.8, 0.28];
-    return { id: `ring-${index}`, x: radius + 20 + positions[index % positions.length] * (this.width - radius * 2 - 40), y: -radius, radius, speed: 245 + index * 18 };
-  }
-
-  createChainNodes() {
-    const columns = 3;
-    const gapX = Math.min(116, (this.width - 92) / 2);
-    const gapY = Math.min(104, this.height * 0.13);
-    const startX = this.width / 2 - gapX;
-    const startY = Math.max(150, this.height * 0.22);
-    return Array.from({ length: 9 }, (_, index) => ({
-      id: `chain-${index}`,
-      x: startX + (index % columns) * gapX + (Math.floor(index / columns) % 2 ? gapX * 0.18 : 0),
-      y: startY + Math.floor(index / columns) * gapY,
-      radius: 20,
-      destroyed: false,
-    }));
-  }
-
-  updateMission(dt) {
-    const mission = this.state.mission;
-    if (!mission) return;
-    mission.timer -= dt;
-    const progress = 1 - mission.timer / mission.duration;
-    if (mission.id === "coaster") {
-      const motion = coasterMotion(progress);
-      mission.laneX = motion.center * this.width;
-      mission.laneWidth = Math.min(230, this.width * 0.52) * motion.laneScale;
-      mission.cameraRoll = motion.roll;
-      mission.trackSpeed = motion.speed;
-      mission.segmentLabel = motion.segmentLabel;
-      if (Math.abs(this.state.player.x - mission.laneX) <= mission.laneWidth * 0.42) mission.onTrack += dt;
-      if (mission.onTrack >= mission.targetOnTrack) this.finishMission(true, "轨道保持完成 // 极限火力 5 秒");
-    } else if (mission.id === "rings") {
-      mission.ring.y += mission.ring.speed * dt;
-      if (ringContainsPlayer(this.state.player, mission.ring)) {
-        mission.passed += 1;
-        this.state.score += 300;
-        this.play("ring");
-        if (mission.passed >= mission.target) this.finishMission(true, "五环全连 // 能量球 +1");
-        else mission.ring = this.createMissionRing(mission.passed);
-      } else if (mission.ring.y - mission.ring.radius > this.height) {
-        mission.missed += 1;
-        mission.ring = this.createMissionRing(mission.passed + mission.missed);
-      }
-    } else if (mission.id === "carrier") {
-      mission.carrier.y += (mission.carrier.targetY - mission.carrier.y) * Math.min(1, dt * 2.2);
-      if (isInsideCarrierDeck(this.state.player, { ...mission.carrier, deckWidth: mission.carrier.deckWidth, deckHeight: mission.carrier.deckHeight })) mission.dockTime += dt;
-      else mission.dockTime = Math.max(0, mission.dockTime - dt * 0.5);
-      if (mission.dockTime >= 2) this.finishMission(true, "稳定停靠完成 // 战机整备完成");
-    } else if (mission.id === "mothership" && mission.parts.every((part) => part.destroyed)) this.finishMission(true, "三处武器舱全部摧毁");
-    else if (mission.id === "chain" && mission.chainMax >= 5) this.finishMission(true, `${mission.chainMax} 连爆 // 屏障 7 秒`);
-    if (this.state.mission && mission.timer <= 0) this.finishMission(false, "挑战超时 // 返回主战场");
-  }
-
-  hitMissionTarget(bullet) {
-    const mission = this.state.mission;
-    if (!mission || !["mothership", "chain"].includes(mission.id)) return false;
-    if (mission.id === "mothership") {
-      const part = mission.parts.find((item) => !item.destroyed && circlesOverlap(bullet, item));
-      if (!part) return false;
-      this.damageMissionPart(part, bullet.damage * (bullet.type === "heavy" ? 1.8 : 1.2));
-      return true;
-    }
-    const node = mission.nodes.find((item) => !item.destroyed && circlesOverlap(bullet, item));
-    if (!node) return false;
-    this.detonateChain(node.id);
-    return true;
-  }
-
-  damageMissionPart(part, amount) {
-    if (!part || part.destroyed) return false;
-    part.health -= amount;
-    if (part.health > 0) return false;
-    part.health = 0;
-    part.destroyed = true;
-    this.state.score += 600;
-    this.spawnParticles(part.x, part.y, 26, "#efb632");
-    this.notify(`${part.label}摧毁`, "继续攻击剩余部件", 1.4);
-    this.play("bossPart");
-    return true;
-  }
-
-  detonateChain(nodeId) {
-    const mission = this.state.mission;
-    if (mission?.id !== "chain") return 0;
-    const ids = connectedChain(mission.nodes, nodeId, mission.chainRadius);
-    ids.forEach((id) => {
-      const node = mission.nodes.find((item) => item.id === id);
-      if (!node || node.destroyed) return;
-      node.destroyed = true;
-      mission.detonated += 1;
-      this.spawnParticles(node.x, node.y, 18, "#ef724b");
-    });
-    mission.chainMax = Math.max(mission.chainMax, ids.length);
-    this.state.shake = Math.min(18, 5 + ids.length * 1.5);
-    this.notify("连锁爆破", `${ids.length} 连爆`, 1.4);
-    this.play("chain", { count: ids.length });
-    return ids.length;
-  }
-
-  finishMission(success, detail) {
-    const mission = this.state.mission;
-    if (!mission) return;
-    if (success) {
-      if (mission.id === "coaster") {
-        this.state.score += 1000;
-        this.state.overdrive = 5;
-      } else if (mission.id === "rings") this.gainTransformCore(1, "穿环奖励");
-      else if (mission.id === "carrier") {
-        this.state.player.health = Math.min(this.state.player.maxHealth, this.state.player.health + this.state.player.maxHealth * 0.35);
-        this.gainTransformCore(1, "航母补给");
-        this.state.wingmanCooldown = 0;
-        this.state.overdrive = 5;
-      } else if (mission.id === "mothership") {
-        this.state.score += 2400;
-        this.state.transformCores = TRANSFORM_CORE_COST;
-        this.clearEntityKind("enemyProjectiles");
-      } else if (mission.id === "chain") {
-        this.state.score += mission.chainMax * 250;
-        this.state.barrierTime = 7;
-      }
-    }
-    this.state.completedMissions.push(mission.id);
-    this.state.missionResults.push({ id: mission.id, success, detail });
-    this.state.mission = null;
-    this.state.spawnTimer = 0.8;
-    this.state.player.invulnerable = Math.max(this.state.player.invulnerable, 1.2);
-    this.notify(success ? "副本完成" : "副本结束", detail, 2.5);
-    this.play("missionResult", { success });
-    this.signal("missionResult", { success, detail });
-  }
 }

@@ -30,11 +30,6 @@ const SOUND_SPECS = {
   airdropUpgrade: [920, 0.32, "square", 0.09],
   airdropClaim: [680, 0.24, "triangle", 0.08],
   airdropFail: [130, 0.28, "square", 0.08],
-  missionAlert: [570, 0.28, "square", 0.08],
-  missionStart: [760, 0.25, "triangle", 0.08],
-  missionResult: [840, 0.3, "square", 0.08],
-  ring: [1040, 0.08, "sine", 0.06],
-  chain: [120, 0.24, "sawtooth", 0.09],
   structureBreak: [85, 0.22, "square", 0.08],
   bossEnter: [72, 0.65, "sawtooth", 0.13],
   bossWarning: [330, 0.3, "square", 0.085],
@@ -61,7 +56,6 @@ const RETRO_PATTERNS = {
   wave: [[0, 1], [0.07, 1.26], [0.14, 1.5]],
   bossEnter: [[0, 1], [0.16, 0.75], [0.32, 0.5]],
   bossWarning: [[0, 1], [0.1, 1.18], [0.2, 0.84]],
-  missionResult: [[0, 1], [0.08, 1.25], [0.16, 1.5]],
 };
 
 export class AudioManager {

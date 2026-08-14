@@ -522,69 +522,6 @@ describe("complete combat migration", () => {
     }
   });
 
-  test("each of the five missions can complete and grant its own reward", () => {
-    {
-      const { system, combat } = createSystem();
-      system.beginMission("coaster");
-      for (let index = 0; index < 90 && combat.mission; index += 1) {
-        combat.player.x = combat.mission.laneX;
-        system.updateMission(0.1);
-      }
-      expect(combat.completedMissions).toContain("coaster");
-      expect(combat.overdrive).toBe(5);
-    }
-    {
-      const { system, combat } = createSystem();
-      system.beginMission("rings");
-      for (let index = 0; index < 5 && combat.mission; index += 1) {
-        combat.player.x = combat.mission.ring.x;
-        combat.player.y = combat.mission.ring.y;
-        system.updateMission(0.01);
-      }
-      expect(combat.completedMissions).toContain("rings");
-      expect(combat.transformCores).toBe(1);
-    }
-    {
-      const { system, combat } = createSystem();
-      system.beginMission("carrier");
-      combat.mission.carrier.y = combat.mission.carrier.targetY;
-      combat.player.x = combat.mission.carrier.x;
-      combat.player.y = combat.mission.carrier.y;
-      for (let index = 0; index < 21 && combat.mission; index += 1) system.updateMission(0.1);
-      expect(combat.completedMissions).toContain("carrier");
-      expect(combat.wingmanCooldown).toBe(0);
-    }
-    {
-      const { system, combat } = createSystem();
-      system.beginMission("mothership");
-      [...combat.mission.parts].forEach((part) => system.damageMissionPart(part, 999));
-      system.updateMission(0.01);
-      expect(combat.completedMissions).toContain("mothership");
-      expect(combat.transformCores).toBe(3);
-    }
-    {
-      const { system, combat } = createSystem();
-      system.beginMission("chain");
-      system.detonateChain(combat.mission.nodes[0].id);
-      system.updateMission(0.01);
-      expect(combat.completedMissions).toContain("chain");
-      expect(combat.barrierTime).toBe(7);
-    }
-  });
-
-  test("missions can fail or be skipped without blocking the main battle", () => {
-    const { system, combat } = createSystem();
-    system.beginMission("rings");
-    combat.mission.timer = 0;
-    system.updateMission(0.1);
-    expect(combat.mission).toBeNull();
-    expect(combat.missionResults.at(-1)).toMatchObject({ id: "rings", success: false });
-    combat.pendingMissionId = "carrier";
-    expect(system.skipMission()).toBe(true);
-    expect(combat.skippedMissions).toContain("carrier");
-    expect(combat.pendingMissionId).toBeNull();
-  });
-
   test("meteor impacts can open breakable map routes", () => {
     const { system, combat } = createSystem();
     const structure = { id: "route", x: 150, y: 250, width: 70, height: 70, breakable: true, solid: true, hp: 40, maxHp: 40, destroyed: false };

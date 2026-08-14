@@ -4,7 +4,6 @@ import { battleVisual, environmentDensity } from "../content/battle-visuals.js";
 import { fighterCombatScale, fighterSilhouetteGeometry, fighterWeaponHardpointKeys } from "../content/fighter-geometry.js";
 import { fighterAbility } from "../content/fighter-abilities.js";
 import { FIGHTER_ORDER, FIGHTERS } from "../content/fighter-profiles.js";
-import { MINI_MISSIONS } from "../content/mini-missions.js";
 import { battleCadence } from "../content/gameplay-rules.js";
 import { normalizeWeaponIndex, weaponMetrics } from "../content/weapon-metrics.js";
 import { computeCombatLayout, computeHangarLayout } from "../ui/layout.js";
@@ -551,7 +550,6 @@ export class GameRenderer {
     const shakeY = combat.shake > 0 ? Math.cos(this.time * 57) * combat.shake * 0.25 * feedbackScale : 0;
     this.drawBattleBackground(layer, map, combat, shakeX, shakeY);
     this.drawMapStructures(layer, combat, shakeX, shakeY);
-    this.drawMission(layer, combat, shakeX, shakeY);
     this.drawAirdrop(layer, combat, shakeX, shakeY);
     this.drawMeteors(layer, combat, shakeX, shakeY);
     this.drawProjectiles(layer, combat, shakeX, shakeY);
@@ -734,42 +732,6 @@ export class GameRenderer {
         const ratio = clamp(structure.hp / structure.maxHp, 0, 1);
         layer.rect({ x: x + 4, y: y + 4, width: (structure.width - 8) * ratio, height: 3, color: COLORS.gold, z: -7 });
       }
-    }
-  }
-
-  drawMission(layer, combat, ox, oy) {
-    const mission = combat.mission;
-    if (!mission) return;
-    if (mission.id === "coaster") {
-      const topWidth = mission.laneWidth * 0.18;
-      const bottomWidth = mission.laneWidth;
-      layer.line({ x1: mission.laneX - topWidth / 2 + ox, y1: 110 + oy, x2: mission.laneX - bottomWidth / 2 + ox, y2: this.height - 110 + oy, width: 5, color: "#23a8d1", opacity: 0.8, z: -4 });
-      layer.line({ x1: mission.laneX + topWidth / 2 + ox, y1: 110 + oy, x2: mission.laneX + bottomWidth / 2 + ox, y2: this.height - 110 + oy, width: 5, color: "#23a8d1", opacity: 0.8, z: -4 });
-      for (let index = 0; index < 8; index += 1) {
-        const y = 130 + ((index * 92 + combat.elapsed * 180 * mission.trackSpeed) % Math.max(180, this.height - 210));
-        const ratio = (y - 110) / Math.max(1, this.height - 220);
-        const half = topWidth / 2 + (bottomWidth / 2 - topWidth / 2) * ratio;
-        layer.line({ x1: mission.laneX - half + ox, y1: y + oy, x2: mission.laneX + half + ox, y2: y + oy, width: 2, color: "#ffffff", opacity: 0.58, z: -3 });
-      }
-    } else if (mission.id === "rings") {
-      layer.circle({ x: mission.ring.x + ox, y: mission.ring.y + oy, radius: mission.ring.radius, color: "#ffffff", opacity: 0.06, border: "#efb632", z: 2 });
-      layer.circle({ x: mission.ring.x + ox, y: mission.ring.y + oy, radius: mission.ring.radius * 0.74, color: "#ffffff", opacity: 0, border: "#fff3a8", z: 3 });
-    } else if (mission.id === "carrier") {
-      const carrier = mission.carrier;
-      layer.rect({ x: carrier.x - carrier.width / 2 + ox, y: carrier.y - carrier.height / 2 + oy, width: carrier.width, height: carrier.height, color: "#536873", border: "#1c3039", z: -3 });
-      layer.rect({ x: carrier.x - carrier.deckWidth / 2 + ox, y: carrier.y - carrier.deckHeight / 2 + oy, width: carrier.deckWidth, height: carrier.deckHeight, color: "#e1b84e", opacity: 0.6, border: "#fff1ad", z: -2 });
-      layer.text("航母甲板", { x: carrier.x - carrier.deckWidth / 2 + ox, y: carrier.y - 10 + oy, width: carrier.deckWidth, height: 20, color: "#172731", fontSize: 9, align: "center", weight: 900, z: -1 });
-    } else if (mission.id === "mothership") {
-      layer.rect({ x: this.width * 0.08 + ox, y: this.height * 0.14 + oy, width: this.width * 0.84, height: 130, color: "#354d5a", border: "#12232b", z: -2 });
-      mission.parts.forEach((part) => {
-        layer.circle({ x: part.x + ox, y: part.y + oy, radius: part.radius, color: part.destroyed ? "#403e3b" : "#c47b22", opacity: part.destroyed ? 0.45 : 0.9, border: "#fff0b5", z: 1 });
-        if (!part.destroyed) layer.rect({ x: part.x - part.radius + ox, y: part.y + part.radius + 5 + oy, width: part.radius * 2 * clamp(part.health / part.maxHealth, 0, 1), height: 4, color: "#efb632", z: 2 });
-      });
-    } else if (mission.id === "chain") {
-      mission.nodes.forEach((node) => {
-        if (node.destroyed) return;
-        layer.circle({ x: node.x + ox, y: node.y + oy, radius: node.radius, color: "#d65346", border: "#ffce74", z: 2 });
-      });
     }
   }
 
@@ -1067,7 +1029,7 @@ export class GameRenderer {
     const map = BATTLE_MAPS[state.mapId];
     const cadence = battleCadence(combat.elapsed);
     const situationY = layout.hud.y + layout.hud.height + 7;
-    if (!combat.boss && !combat.mission) {
+    if (!combat.boss) {
       layer.text(`${cadence.label} · ${map.objective}`, { x: 14, y: situationY, width: this.width - 28, height: 18, color: map.accent, fontSize: 7.5, align: "center", weight: 850, z: 21 });
     }
 
@@ -1104,23 +1066,6 @@ export class GameRenderer {
         const px = x + 12 + index * (partWidth + 6);
         layer.line({ x1: px, y1: y + 33, x2: px + partWidth * clamp(part.health / part.maxHealth, 0, 1), y2: y + 33, width: 2, color: part.destroyed ? COLORS.soft : combat.boss.accent, opacity: 0.8, z: 22 });
       }
-    }
-
-    if (combat.mission) {
-      const mission = combat.mission;
-      const spec = MINI_MISSIONS[mission.id];
-      const width = Math.min(this.width - 34, 360);
-      const x = (this.width - width) / 2;
-      const y = layout.hud.y + layout.hud.height + (combat.boss ? 52 : 8);
-      const progressText = mission.id === "coaster" ? `${mission.onTrack.toFixed(1)} / 8.5 秒`
-        : mission.id === "rings" ? `${mission.passed} / 5 环`
-          : mission.id === "carrier" ? `${mission.dockTime.toFixed(1)} / 2.0 秒`
-            : mission.id === "mothership" ? `${mission.parts.filter((part) => part.destroyed).length} / 3 部件`
-              : `${mission.chainMax} 连爆`;
-      layer.rect({ x, y, width, height: 46, color: COLORS.battleInk, opacity: 0.94, border: COLORS.line, z: 20 });
-      layer.text(`${spec.title} · ${progressText}`, { x: x + 8, y: y + 5, width: width - 70, height: 18, color: COLORS.gold, fontSize: 9, weight: 900, z: 21 });
-      layer.text(`${mission.timer.toFixed(1)} 秒`, { x: x + width - 66, y: y + 5, width: 58, height: 18, color: COLORS.red, fontSize: 9, align: "right", weight: 900, z: 21 });
-      layer.text(mission.id === "coaster" ? mission.segmentLabel : spec.objective, { x: x + 8, y: y + 25, width: width - 16, height: 16, color: COLORS.soft, fontSize: 8, weight: 700, z: 21 });
     }
 
     if (combat.airdrop?.phase === "escort") {

@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import { FIGHTER_ORDER, FIGHTERS, WINGMAN_SPECS, getToolModes } from "../src/content/fighter-profiles.js";
 import { BATTLE_MAPS, MAP_ORDER, createMapStructures } from "../src/content/battle-maps.js";
 import { BATTLE_VISUALS, environmentDensity } from "../src/content/battle-visuals.js";
-import { MINI_MISSION_ORDER, coasterMotion } from "../src/content/mini-missions.js";
 import { TRANSFORM_CORE_COST, TRANSFORM_DURATION, battleCadence, canEnterCoreTransform } from "../src/content/gameplay-rules.js";
 
 describe("migrated content contract", () => {
@@ -58,10 +57,4 @@ describe("migrated content contract", () => {
     expect([0, 6, 18, 29, 34].map((time) => battleCadence(time).id)).toEqual(["establish", "assault", "pressure", "respite", "climax"]);
   });
 
-  test("retains five mini missions and coaster phases", () => {
-    expect(MINI_MISSION_ORDER).toEqual(["coaster", "rings", "carrier", "mothership", "chain"]);
-    expect([0.05, 0.25, 0.5, 0.72, 0.95].map((value) => coasterMotion(value).segmentLabel)).toEqual([
-      "弹射起步", "垂直急降", "高速 S 弯", "螺旋翻转", "终点冲刺",
-    ]);
-  });
 });
