@@ -287,7 +287,7 @@ test("武器、被动、变身、自动僚机和双触点操作互不冲突", as
     system.collectPickup("core");
   });
   await page.waitForFunction(() => globalThis.__mouseStrikeMiniGame.app.renderer.hudLayer.texts
-    .some((slot) => slot.sprite.visible && slot.key.startsWith("能量已满，点击右侧“变身”|")));
+    .some((slot) => slot.sprite.visible && slot.key.startsWith("CORE READY // 点击右侧变身|")));
   await clickRect(page, combatLayout.actions.transform);
   const transformed = await page.evaluate(() => ({
     active: globalThis.__mouseStrikeMiniGame.state.combat.transformed,
@@ -392,30 +392,21 @@ test("战斗 HUD 与暂停弹窗在窄屏保持完整", async ({ page }) => {
   await page.waitForFunction(() => globalThis.__mouseStrikeMiniGame?.state?.modal?.type === "resume");
 });
 
-test("分包失败显示重试，恢复后继续进入战斗", async ({ page }) => {
+test("战机地图分包失败不会阻止进入战斗", async ({ page }) => {
   await openGame(page);
   await page.evaluate(() => {
     const api = globalThis.__mouseStrikeMiniGame;
     api.app.selectFighter("j35");
-    let attempts = 0;
-    api.resources.ensure = async () => {
-      attempts += 1;
-      if (attempts === 1) throw new Error("offline");
-      return ["fighters-cn-us"];
-    };
+    api.resources.ensure = async () => { throw new Error("offline"); };
   });
   const hangar = await getLayout(page, "hangar");
   await clickRect(page, hangar.start);
-  await page.waitForFunction(() => globalThis.__mouseStrikeMiniGame?.state?.modal?.type === "error"
-    && globalThis.__mouseStrikeMiniGame.state.modal.optionRects?.length === 2);
-  const ids = await page.evaluate(() => globalThis.__mouseStrikeMiniGame.state.modal.optionRects.map((rect) => rect.id));
-  expect(ids).toEqual(["retry-load", "close"]);
-  const retry = await page.evaluate(() => globalThis.__mouseStrikeMiniGame.state.modal.optionRects.find((rect) => rect.id === "retry-load"));
-  await clickRect(page, retry);
   await page.waitForFunction(() => globalThis.__mouseStrikeMiniGame?.state?.scene === "combat");
+  await page.waitForTimeout(100);
+  expect(await page.evaluate(() => globalThis.__mouseStrikeMiniGame.state.modal)).toBe(null);
 });
 
-test("分包加载可以留在机库，完成中的请求不会误启动战斗", async ({ page }) => {
+test("分包回调挂起或延迟完成都不会卡在装载界面", async ({ page }) => {
   await openGame(page);
   await page.evaluate(() => {
     const api = globalThis.__mouseStrikeMiniGame;
@@ -426,16 +417,13 @@ test("分包加载可以留在机库，完成中的请求不会误启动战斗",
   });
   const hangar = await getLayout(page, "hangar");
   await clickRect(page, hangar.start);
-  await page.waitForFunction(() => globalThis.__mouseStrikeMiniGame?.state?.modal?.type === "loading"
-    && globalThis.__mouseStrikeMiniGame.state.modal.optionRects?.length === 1);
-  const cancel = await page.evaluate(() => globalThis.__mouseStrikeMiniGame.state.modal.optionRects[0]);
-  await clickRect(page, cancel);
+  await page.waitForFunction(() => globalThis.__mouseStrikeMiniGame?.state?.scene === "combat");
   await page.evaluate(() => globalThis.__mouseStrikeMiniGame.resolvePendingPackage([]));
   await page.waitForTimeout(100);
   expect(await page.evaluate(() => ({
     scene: globalThis.__mouseStrikeMiniGame.state.scene,
     modal: globalThis.__mouseStrikeMiniGame.state.modal,
-  }))).toEqual({ scene: "hangar", modal: null });
+  }))).toEqual({ scene: "combat", modal: null });
 });
 
 test("死亡结算完整且不出现强化模块，可直接重新开始", async ({ page }) => {

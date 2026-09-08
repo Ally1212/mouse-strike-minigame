@@ -6,10 +6,10 @@ export const BATTLE_VISUALS = {
     far: "#243e43", mid: "#36545a", near: "#182e34", warning: "#efb45b",
   },
   pacific: {
-    sky: "#123d4a", deep: "#04242d", horizon: "#287382", haze: "#72bac1", streak: "#b9e3e5",
+    sky: "#0a3142", deep: "#02151f", horizon: "#23758b", haze: "#72bac1", streak: "#b9e3e5",
     terrain: "ocean", landmarks: ["island", "carrier", "destroyer"], density: 9,
     time: "storm", weather: "thunder", landmark: "航母战斗群", mechanic: "雷暴短暂清除敌弹",
-    far: "#10343d", mid: "#164f59", near: "#082b34", warning: "#ffd45d",
+    far: "#0a2a38", mid: "#10536a", near: "#031f2c", warning: "#ffd45d",
   },
   arctic: {
     sky: "#17444f", deep: "#071f28", horizon: "#418f91", haze: "#92d7d0", streak: "#d0f3ed",
@@ -30,6 +30,25 @@ export const BATTLE_VISUALS = {
     far: "#2a1e31", mid: "#4c2b43", near: "#1a1424", warning: "#ff9b68",
   },
 };
+
+export const VISUAL_QUALITY = {
+  low: { particles: 0.3, atmosphere: 0.45, trails: 3, lightning: false, details: false },
+  medium: { particles: 0.6, atmosphere: 0.72, trails: 6, lightning: true, details: true },
+  high: { particles: 1, atmosphere: 1, trails: 10, lightning: true, details: true },
+};
+
+export function visualQuality(quality = "high") {
+  return VISUAL_QUALITY[quality] || VISUAL_QUALITY.high;
+}
+
+export function combatIntensity(combat = {}) {
+  if (combat.boss) return combat.boss.phase === 3 ? 1 : combat.boss.phase === 2 ? 0.86 : 0.72;
+  const elapsed = Math.max(0, Number(combat.elapsed) || 0);
+  const cadence = (elapsed % 36) / 36;
+  if (cadence > 0.72) return 0.82;
+  if (cadence > 0.42) return 0.62;
+  return 0.38;
+}
 
 export function battleVisual(mapId) {
   return BATTLE_VISUALS[mapId] || BATTLE_VISUALS.usa;

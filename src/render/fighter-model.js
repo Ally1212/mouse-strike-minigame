@@ -333,6 +333,25 @@ function addProfileDetails(group, profile, materials, parts) {
   }
 }
 
+function addSurfaceIdentity(group, blueprint, materials, parts) {
+  const count = blueprint.railCount || 2;
+  const bodyLength = blueprint.body[1];
+  const bodyWidth = blueprint.body[0];
+  for (let index = 0; index < count; index += 1) {
+    const lane = index - (count - 1) / 2;
+    const width = index === Math.floor(count / 2) ? 1.15 : 0.72;
+    const rail = mesh(
+      prismGeometry([[-width, -bodyLength * 0.28], [width, -bodyLength * 0.28], [width * 1.35, bodyLength * 0.25], [-width * 1.35, bodyLength * 0.25]], 0.45),
+      index % 2 ? materials.secondary : materials.accent,
+      `identity-${blueprint.signature}-${index}`,
+      [lane * Math.max(3.2, bodyWidth * 0.2), 8.5, 2],
+    );
+    remember(rail, { surfaceIdentity: blueprint.signature });
+    group.add(rail);
+    parts.surfaceDetails.push(rail);
+  }
+}
+
 function addFlightMechCore(chest, mech, materials) {
   const y = 10;
   if (mech.coreStyle === "diamond") {
@@ -478,7 +497,7 @@ export function createFighterModel(fighter) {
   };
   const root = new THREE.Group();
   root.name = fighter.id;
-  const parts = { core: [], wings: [], canards: [], tails: [], enginePods: [], engines: [], special: [], aerial: [], aerialDetails: [] };
+  const parts = { core: [], wings: [], canards: [], tails: [], enginePods: [], engines: [], special: [], surfaceDetails: [], aerial: [], aerialDetails: [] };
   const [bodyWidth, bodyLength] = blueprint.body;
   const fuselage = mesh(prismGeometry(bodyPoints(bodyWidth, bodyLength, profile), profile === "siege" ? 13 : 10), materials.body, "fuselage");
   const upperDeck = mesh(prismGeometry(bodyPoints(bodyWidth * 0.58, bodyLength * 0.76, profile), 3.8), materials.panel, "upper-deck", [0, 6.2, -5]);
@@ -496,6 +515,7 @@ export function createFighterModel(fighter) {
   addEngines(root, blueprint, materials, parts);
   addAirframeDetails(root, blueprint, materials, parts);
   addProfileDetails(root, profile, materials, parts);
+  addSurfaceIdentity(root, blueprint, materials, parts);
   createTransformationHardware(root, blueprint, materials, parts, profile);
   const hardpoints = addWeaponHardpoints(root, blueprint);
   root.userData = {
@@ -674,6 +694,9 @@ export function updateFighterModel(group, mode, time, userRotation = 0, reducedM
   });
   parts.special.forEach((part, index) => updateSpecial(part, profile, mode, progress, time, index));
   parts.aerialDetails.forEach((part) => {
+    part.visible = !lowQuality;
+  });
+  parts.surfaceDetails.forEach((part) => {
     part.visible = !lowQuality;
   });
   parts.aerial.forEach((part) => {

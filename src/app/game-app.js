@@ -486,32 +486,24 @@ export class GameApp {
     }
   }
 
-  async launchSelectedFighter() {
+  launchSelectedFighter() {
     const launchId = ++this.launchSequence;
-    this.state.modal = {
-      type: "loading",
-      title: "作战资源装载",
-      lines: ["正在准备战机与地图"],
-      options: [{ id: "cancel-load", label: "留在机库" }],
-    };
-    try {
-      await this.resources.ensure({ fighterId: this.state.fighterId, mapId: this.state.mapId }, (progress) => {
+    this.state.hangar.packageProgress = 0;
+    // Fighter and map gameplay data is already bundled in the main package. Some
+    // iOS clients report subpackage progress=100 without firing the success
+    // callback, so optional warming must never block entry into combat.
+    Promise.resolve()
+      .then(() => this.resources.ensure({ fighterId: this.state.fighterId, mapId: this.state.mapId }, (progress) => {
         if (launchId !== this.launchSequence) return;
         this.state.hangar.packageProgress = (progress.progress || 0) / 100;
-        if (this.state.modal?.type === "loading") this.state.modal.lines = [`正在准备战机与地图 ${Math.round(progress.progress || 0)}%`];
+      }))
+      .then(() => {
+        if (launchId === this.launchSequence) this.state.hangar.packageProgress = 1;
+      })
+      .catch(() => {
+        if (launchId === this.launchSequence) this.state.hangar.packageProgress = 1;
       });
-      if (launchId !== this.launchSequence) return;
-      this.state.modal = null;
-      this.startCombat();
-    } catch {
-      if (launchId !== this.launchSequence) return;
-      this.state.modal = {
-        type: "error",
-        title: "资源加载失败",
-        lines: ["请检查网络后重试，当前机库状态已保留"],
-        options: [{ id: "retry-load", label: "重新加载" }, { id: "close", label: "返回机库" }],
-      };
-    }
+    this.startCombat();
   }
 
   startCombat() {

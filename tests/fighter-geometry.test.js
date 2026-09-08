@@ -18,6 +18,8 @@ describe("shared fighter geometry", () => {
     expect(silhouette.intakes).toHaveLength(2);
     expect(silhouette.weaponBays).toHaveLength(2);
     expect(silhouette.panelLines).toHaveLength(4);
+    expect(silhouette.energyRails).toHaveLength(spec.railCount);
+    expect(silhouette.signature).toBe(spec.signature);
   });
 
   test("combat rendering and weapon origins share the exact same scale", () => {

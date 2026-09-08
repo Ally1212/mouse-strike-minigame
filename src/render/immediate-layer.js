@@ -17,6 +17,29 @@ function createTextTexture(canvas) {
   return texture;
 }
 
+function createEffectTexture(runtime, kind) {
+  const canvas = runtime.createOffscreenCanvas(64, 64);
+  const context = canvas.getContext("2d");
+  const gradient = context.createRadialGradient(32, 32, kind === "spark" ? 1 : 4, 32, 32, 31);
+  if (kind === "spark") {
+    gradient.addColorStop(0, "rgba(255,255,255,1)");
+    gradient.addColorStop(0.16, "rgba(255,255,255,.88)");
+    gradient.addColorStop(0.52, "rgba(255,255,255,.2)");
+  } else {
+    gradient.addColorStop(0, "rgba(255,255,255,.95)");
+    gradient.addColorStop(0.28, "rgba(255,255,255,.42)");
+    gradient.addColorStop(0.7, "rgba(255,255,255,.08)");
+  }
+  gradient.addColorStop(1, "rgba(255,255,255,0)");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 64, 64);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  return texture;
+}
+
 function polygonTopologyKey(vertices) {
   const turns = vertices.map((current, index) => {
     const previous = vertices[(index - 1 + vertices.length) % vertices.length];
@@ -37,13 +60,19 @@ export class ImmediateLayer {
     this.lines = [];
     this.polygons = [];
     this.texts = [];
+    this.sprites = [];
     this.rectIndex = 0;
     this.circleIndex = 0;
     this.lineIndex = 0;
     this.polygonIndex = 0;
     this.textIndex = 0;
+    this.spriteIndex = 0;
     this.plane = new THREE.PlaneGeometry(1, 1);
     this.disc = new THREE.CircleGeometry(1, 24);
+    this.effectTextures = {
+      glow: createEffectTexture(runtime, "glow"),
+      spark: createEffectTexture(runtime, "spark"),
+    };
   }
 
   sceneY(y) {
@@ -56,6 +85,31 @@ export class ImmediateLayer {
     this.lineIndex = 0;
     this.polygonIndex = 0;
     this.textIndex = 0;
+    this.spriteIndex = 0;
+  }
+
+  sprite({ x, y, width, height = width, color = "#ffffff", opacity = 1, rotation = 0, texture = "glow", additive = true, z = 0 }) {
+    const map = typeof texture === "string" ? this.effectTextures[texture] : texture;
+    if (!map) return null;
+    let body = this.sprites[this.spriteIndex];
+    if (!body) {
+      body = new THREE.Mesh(this.plane, new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
+      body.frustumCulled = false;
+      this.group.add(body);
+      this.sprites.push(body);
+    }
+    this.spriteIndex += 1;
+    body.visible = true;
+    body.position.set(x, this.sceneY(y), z);
+    body.scale.set(width, height, 1);
+    body.rotation.z = rotation;
+    body.renderOrder = z * 10 + 2;
+    body.material.map = map;
+    body.material.color.copy(colorValue(color));
+    body.material.opacity = opacity;
+    body.material.blending = additive ? THREE.AdditiveBlending : THREE.NormalBlending;
+    body.material.needsUpdate = true;
+    return body;
   }
 
   polygon({ points, color = "#ffffff", opacity = 1, border = null, z = 0 }) {
@@ -243,5 +297,6 @@ export class ImmediateLayer {
     for (let index = this.lineIndex; index < this.lines.length; index += 1) this.lines[index].visible = false;
     for (let index = this.polygonIndex; index < this.polygons.length; index += 1) this.polygons[index].body.visible = false;
     for (let index = this.textIndex; index < this.texts.length; index += 1) this.texts[index].sprite.visible = false;
+    for (let index = this.spriteIndex; index < this.sprites.length; index += 1) this.sprites[index].visible = false;
   }
 }

@@ -22,6 +22,7 @@ describe("procedural flying robot transformation forms", () => {
     expect(model.children.some((part) => part.name.startsWith("flight-mech-head-"))).toBe(true);
     expect(model.children.some((part) => part.name.includes("left-arm"))).toBe(true);
     expect(model.children.some((part) => part.name.includes("right-arm"))).toBe(true);
+    expect(model.userData.parts.surfaceDetails).toHaveLength(model.userData.blueprint.railCount);
   });
 
   test.each(FIGHTER_ORDER)("%s snaps safely between flight and flying-robot form in reduced-motion mode", (fighterId) => {

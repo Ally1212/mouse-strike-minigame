@@ -1,6 +1,6 @@
 import * as THREE from "three-platformize";
 import { BATTLE_MAPS } from "../content/battle-maps.js";
-import { battleVisual, environmentDensity } from "../content/battle-visuals.js";
+import { battleVisual, combatIntensity, environmentDensity, visualQuality } from "../content/battle-visuals.js";
 import { fighterCombatScale, fighterSilhouetteGeometry, fighterWeaponHardpointKeys } from "../content/fighter-geometry.js";
 import { fighterAbility } from "../content/fighter-abilities.js";
 import { FIGHTER_ORDER, FIGHTERS } from "../content/fighter-profiles.js";
@@ -271,6 +271,7 @@ export class GameRenderer {
     const fighter = FIGHTERS[state.fighterId];
     const layer = this.uiLayer;
     layer.begin();
+    this.drawHangarEnvironment(layer, layout, fighter, state.settings.reducedMotion);
     this.button(layer, layout.sound, "设置", false, "surface", 24, state.uiPress === "sound");
 
     const radarX = this.width / 2;
@@ -328,6 +329,27 @@ export class GameRenderer {
     this.drawToast(state, layout.preview.y + layout.preview.height - 52);
     if (state.modal) this.drawModal(state.modal);
     layer.end();
+  }
+
+  drawHangarEnvironment(layer, layout, fighter, reducedMotion) {
+    const top = layout.preview.y;
+    const bottom = layout.preview.y + layout.preview.height;
+    const center = this.width / 2;
+    const pulse = reducedMotion ? 0.5 : (Math.sin(this.time * 2.4) + 1) * 0.5;
+    for (let index = 0; index < 5; index += 1) {
+      const inset = 10 + index * 24;
+      const opacity = 0.08 - index * 0.01;
+      layer.line({ x1: inset, y1: top + 18, x2: center - 48, y2: bottom - 8, width: 1, color: fighter.accent, opacity, z: -5 });
+      layer.line({ x1: this.width - inset, y1: top + 18, x2: center + 48, y2: bottom - 8, width: 1, color: fighter.accent, opacity, z: -5 });
+    }
+    for (let y = top + 28; y < bottom; y += 34) {
+      layer.line({ x1: 16, y1: y, x2: this.width - 16, y2: y, width: 1, color: "#5dc7e2", opacity: 0.045, z: -6 });
+    }
+    const scanY = reducedMotion ? top + layout.preview.height * 0.56 : top + 18 + ((this.time * 46) % Math.max(40, layout.preview.height - 36));
+    layer.line({ x1: 22, y1: scanY, x2: this.width - 22, y2: scanY, width: 2, color: fighter.accent, opacity: 0.12 + pulse * 0.1, z: 5 });
+    layer.line({ x1: 12, y1: top + 12, x2: 70, y2: top + 12, width: 3, color: fighter.accent, opacity: 0.72, z: 5 });
+    layer.line({ x1: this.width - 70, y1: top + 12, x2: this.width - 12, y2: top + 12, width: 3, color: fighter.accent, opacity: 0.72, z: 5 });
+    layer.text("TACTICAL AIRFRAME // ONLINE", { x: 18, y: top + 17, width: this.width - 36, height: 14, color: fighter.secondary, fontSize: 6.5, align: "center", weight: 900, z: 5 });
   }
 
   drawHangarWeaponSelector(state, layout, fighter) {
@@ -458,6 +480,8 @@ export class GameRenderer {
       geometry.intakes.forEach((points) => layer.polygon({ points, color: "#06131c", border: fighter.accent, z: z + 3 }));
       geometry.weaponBays.forEach((line) => layer.line({ ...line, width: Math.max(1, scale), color: fighter.accent, opacity: 0.38, z: z + 3 }));
       geometry.panelLines.forEach((line) => layer.line({ ...line, width: Math.max(0.8, scale * 0.9), color: paint.panel, opacity: detail === "high" ? 0.48 : 0.3, z: z + 3 }));
+      geometry.energyRails.forEach((line, index) => layer.line({ ...line, width: Math.max(0.8, scale * (index % 2 ? 1 : 1.5)), color: index % 2 ? fighter.secondary : fighter.accent, opacity: options.glow ? 0.88 : 0.5, z: z + 4 }));
+      this.drawFighterSignature(layer, geometry, fighter, x, y, scale, z + 4);
     }
     geometry.engines.forEach((engine) => {
       layer.line({ x1: engine.x, y1: engine.y, x2: engine.x, y2: engine.y + 16 * scale, width: 6 * scale, color: fighter.accent, opacity: 0.12, z: z - 1 });
@@ -476,6 +500,31 @@ export class GameRenderer {
     ], color: "#bfeeff", border: fighter.accent, z: z + 5 });
     layer.line({ x1: x - geometry.cockpit.radius * 0.35, y1: geometry.cockpit.y - cockpitLength * 0.25, x2: x + geometry.cockpit.radius * 0.22, y2: geometry.cockpit.y + cockpitLength * 0.32, width: Math.max(0.8, scale), color: "#ffffff", opacity: 0.72, z: z + 6 });
     return { ...geometry, span };
+  }
+
+  drawFighterSignature(layer, geometry, fighter, x, y, scale, z) {
+    const span = Math.max(...geometry.outline.map((point) => Math.abs(point.x - x)));
+    const marks = {
+      "dragon-spine": [[-0.48, 0.08, -0.18, -0.08], [0.48, 0.08, 0.18, -0.08]],
+      "carrier-shield": [[-0.62, 0.02, -0.3, 0.2], [0.62, 0.02, 0.3, 0.2]],
+      "manta-node": [[-0.76, 0.12, -0.42, -0.02], [0.76, 0.12, 0.42, -0.02]],
+      "raptor-claw": [[-0.54, -0.05, -0.28, 0.2], [0.54, -0.05, 0.28, 0.2]],
+      "storm-lance": [[0, -0.62, 0, 0.38]],
+      "twin-blade": [[-0.64, 0.18, -0.2, -0.2], [0.64, -0.18, 0.2, 0.2]],
+      "vector-rail": [[0, -0.5, 0, 0.42]],
+      "bastion-grid": [[-0.68, 0.02, -0.34, 0.02], [0.68, 0.02, 0.34, 0.02]],
+      "trident-core": [[-0.48, -0.18, -0.2, 0.34], [0, -0.48, 0, 0.38], [0.48, -0.18, 0.2, 0.34]],
+    };
+    (marks[geometry.signature] || []).forEach(([sx, sy, ex, ey], index) => layer.line({
+      x1: x + sx * span,
+      y1: y + sy * 42 * scale,
+      x2: x + ex * span,
+      y2: y + ey * 42 * scale,
+      width: Math.max(1, 1.8 * scale),
+      color: index % 2 ? fighter.secondary : fighter.accent,
+      opacity: 0.72,
+      z,
+    }));
   }
 
   projectWeaponHardpoint(key) {
@@ -549,6 +598,7 @@ export class GameRenderer {
     const shakeX = combat.shake > 0 ? Math.sin(this.time * 68) * combat.shake * 0.35 * feedbackScale : 0;
     const shakeY = combat.shake > 0 ? Math.cos(this.time * 57) * combat.shake * 0.25 * feedbackScale : 0;
     this.drawBattleBackground(layer, map, combat, shakeX, shakeY);
+    this.drawCombatAtmosphere(layer, map, combat, shakeX, shakeY, state.settings.reducedMotion);
     this.drawMapStructures(layer, combat, shakeX, shakeY);
     this.drawAirdrop(layer, combat, shakeX, shakeY);
     this.drawMeteors(layer, combat, shakeX, shakeY);
@@ -568,6 +618,7 @@ export class GameRenderer {
     hud.begin();
     this.drawCombatHud(hud, state, combat, fighter, layout);
     this.drawCombatFeedback(hud, state, combat);
+    this.drawThreatOverlay(hud, state, combat, fighter);
     this.drawToast(state, this.height - 150, hud);
     if (state.modal) this.drawModal(state.modal, hud);
     hud.end();
@@ -611,6 +662,36 @@ export class GameRenderer {
     this.drawNearAtmosphere(layer, map.id, visual, nearScroll, ox, oy);
     layer.text(`${map.code}  /  ${map.name}`, { x: 14, y: Math.max(108, this.runtime.viewport.safeArea.top + 76), width: this.width - 28, height: 20, color: visual.streak, fontSize: 7, weight: 900, z: -12 });
     layer.text(`${visual.landmark} · ${visual.mechanic}`, { x: 14, y: Math.max(122, this.runtime.viewport.safeArea.top + 90), width: this.width - 28, height: 18, color: visual.haze, fontSize: 6.5, weight: 750, z: -12 });
+  }
+
+  drawCombatAtmosphere(layer, map, combat, ox, oy, reducedMotion) {
+    const visual = battleVisual(map.id);
+    const budget = visualQuality(this.quality);
+    const intensity = combatIntensity(combat);
+    const centerX = this.width * 0.5;
+    const vanishingY = this.height * 0.26;
+    const speed = reducedMotion ? 0 : combat.elapsed * (85 + intensity * 120);
+    for (let index = 0; index < budget.trails; index += 1) {
+      const lane = ((index * 47 + 13) % 101) / 100;
+      const phase = ((index * 83 + speed) % (this.height + 220)) - 110;
+      const x = centerX + (lane - 0.5) * this.width * (0.32 + phase / this.height * 0.9);
+      const length = 18 + intensity * 38 + (index % 3) * 7;
+      layer.line({ x1: centerX + (x - centerX) * 0.88 + ox, y1: phase - length + oy, x2: x + ox, y2: phase + oy, width: index % 3 === 0 ? 2.2 : 1.1, color: visual.streak, opacity: 0.055 + intensity * 0.07, z: -11 });
+    }
+    if (map.id === "pacific") {
+      const storm = 0.06 + intensity * 0.06;
+      for (let index = 0; index < Math.ceil(7 * budget.atmosphere); index += 1) {
+        const x = ((index * 67 + combat.elapsed * 94) % (this.width + 100)) - 50;
+        const y = ((index * 131 + combat.elapsed * 210) % (this.height + 140)) - 70;
+        layer.line({ x1: x + ox, y1: y + oy, x2: x - 18 + ox, y2: y + 54 + oy, width: 1.2, color: "#bfefff", opacity: storm, z: -10 });
+      }
+      const lightning = budget.lightning && !reducedMotion && Math.sin(combat.elapsed * 2.7) > 0.965;
+      if (lightning) {
+        const boltX = this.width * 0.78;
+        layer.line({ x1: boltX, y1: vanishingY - 110, x2: boltX - 18, y2: vanishingY - 28, width: 2.2, color: "#dff9ff", opacity: 0.48, z: -10 });
+        layer.line({ x1: boltX - 18, y1: vanishingY - 28, x2: boltX + 6, y2: vanishingY + 28, width: 1.5, color: "#9eeaff", opacity: 0.4, z: -10 });
+      }
+    }
   }
 
   drawFarTerrain(layer, mapId, visual, scroll, ox, oy) {
@@ -926,7 +1007,26 @@ export class GameRenderer {
     const body = boss.phase === 3 ? darkenHex(boss.accent, 0.3) : "#365665";
     const span = boss.silhouette === "trident" ? 92 : boss.silhouette === "ring-carrier" ? 84 : 72;
     const opacity = boss.mechanic === "cloak" ? 0.48 + (1 - boss.cloak) * 0.5 : 1;
+    const phasePulse = 1 + Math.sin(this.time * (3 + boss.phase * 1.4)) * 0.06;
+    if (boss.phase === 1) {
+      layer.circle({ x, y: y + 4, radius: span * 0.92 * phasePulse, color: boss.accent, opacity: 0.035, border: boss.accent, z: 0 });
+      layer.circle({ x, y: y + 4, radius: span * 0.72, color: boss.accent, opacity: 0.02, border: "#a9ecff", z: 0 });
+    } else if (boss.phase === 2) {
+      for (const side of [-1, 1]) layer.line({ x1: x + side * 24, y1: y - 48, x2: x + side * span * 1.15, y2: y + 22, width: 5, color: boss.accent, opacity: 0.28, z: 0 });
+    } else {
+      if (this.quality !== "low") layer.sprite({ x, y: y + 10, width: 96 * phasePulse, color: "#ff5b3f", opacity: 0.22, texture: "glow", z: 0 });
+      layer.circle({ x, y: y + 10, radius: 38 * phasePulse, color: "#ff4d3d", opacity: 0.1, border: "#ffd36a", z: 0 });
+      for (let index = 0; index < 6; index += 1) {
+        const angle = this.time * 0.8 + index * Math.PI / 3;
+        layer.line({ x1: x + Math.cos(angle) * 30, y1: y + 10 + Math.sin(angle) * 30, x2: x + Math.cos(angle) * 62, y2: y + 10 + Math.sin(angle) * 62, width: 2, color: "#ff805f", opacity: 0.5, z: 0 });
+      }
+    }
     layer.polygon({ points: [{ x, y: y + 72 }, { x: x + 28, y: y + 34 }, { x: x + span, y: y - 8 }, { x: x + 42, y: y - 34 }, { x: x + 26, y: y - 62 }, { x, y: y - 44 }, { x: x - 26, y: y - 62 }, { x: x - 42, y: y - 34 }, { x: x - span, y: y - 8 }, { x: x - 28, y: y + 34 }], color: body, opacity, border: boss.accent, z: 1 });
+    for (const side of [-1, 1]) {
+      layer.polygon({ points: [{ x: x + side * 18, y: y - 36 }, { x: x + side * 52, y: y - 22 }, { x: x + side * 68, y: y - 4 }, { x: x + side * 30, y: y + 18 }], color: boss.phase === 3 ? "#632f35" : "#173847", opacity: 0.86, border: boss.accent, z: 2 });
+      layer.line({ x1: x + side * 20, y1: y + 42, x2: x + side * 28, y2: y + 86, width: 8, color: boss.phase === 3 ? "#ff5b3f" : "#66dff6", opacity: 0.16, z: 0 });
+      layer.line({ x1: x + side * 20, y1: y + 42, x2: x + side * 27, y2: y + 74, width: 3, color: boss.phase === 3 ? "#ffd067" : "#b9f6ff", opacity: 0.68, z: 1 });
+    }
     if (boss.silhouette === "ring-carrier") layer.circle({ x, y: y + 4, radius: 42, color: "#071a28", opacity: 0.38, border: boss.accent, z: 2 });
     if (boss.silhouette === "trident") for (const dx of [-34, 0, 34]) layer.line({ x1: x + dx * 0.45, y1: y + 24, x2: x + dx, y2: y + 78, width: 8, color: boss.accent, opacity: 0.76, z: 2 });
     layer.circle({ x, y: y + 12, radius: 13 + boss.phase * 2, color: boss.phase === 3 ? "#ffcc54" : boss.accent, border: "#fff3b0", z: 4 });
@@ -936,8 +1036,12 @@ export class GameRenderer {
       layer.line({ x1: x, y1: y + 20, x2: combat.player.x + ox, y2: combat.player.y + oy, width: 2.5, color: "#ff6b58", opacity: 0.62, z: 5 });
     }
     for (const [key, part] of Object.entries(boss.parts)) {
-      const x = boss.x + (key === "left" ? -55 : 55) + ox;
-      layer.circle({ x, y: boss.y + 16 + oy, radius: 20, color: part.destroyed ? "#333b3f" : "#c47b22", border: "#fff0b5", z: 3 });
+      const partX = boss.x + (key === "left" ? -55 : 55) + ox;
+      layer.circle({ x: partX, y: boss.y + 16 + oy, radius: 20, color: part.destroyed ? "#333b3f" : "#c47b22", border: part.destroyed ? "#6e777b" : "#fff0b5", z: 3 });
+      if (part.destroyed) {
+        layer.line({ x1: partX - 5, y1: boss.y + 4 + oy, x2: partX + 7, y2: boss.y + 27 + oy, width: 3, color: "#ef6b55", opacity: 0.48, z: 4 });
+        layer.circle({ x: partX + Math.sin(this.time * 2) * 5, y: boss.y - 2 + oy, radius: 8, color: "#26343a", opacity: 0.35, z: 2 });
+      }
     }
   }
 
@@ -990,8 +1094,18 @@ export class GameRenderer {
   }
 
   drawParticles(layer, combat, ox, oy) {
-    const limit = this.quality === "low" ? 42 : this.quality === "medium" ? 78 : 110;
-    combat.entities.particles.slice(0, limit).forEach((particle) => layer.circle({ x: particle.x + ox, y: particle.y + oy, radius: particle.radius, color: particle.color, opacity: clamp(particle.life / particle.maxLife, 0, 1), z: 11 }));
+    const budget = visualQuality(this.quality);
+    const limit = Math.round(110 * budget.particles);
+    combat.entities.particles.slice(0, limit).forEach((particle, index) => {
+      const life = clamp(particle.life / particle.maxLife, 0, 1);
+      if (this.quality !== "low" && index % 2 === 0) {
+        const magnitude = Math.max(1, Math.hypot(particle.vx || 0, particle.vy || 0));
+        const trail = 5 + particle.radius * 2.2;
+        layer.line({ x1: particle.x + ox, y1: particle.y + oy, x2: particle.x - (particle.vx || 0) / magnitude * trail + ox, y2: particle.y - (particle.vy || 0) / magnitude * trail + oy, width: Math.max(1, particle.radius * 0.65), color: particle.color, opacity: life * 0.72, z: 11 });
+      }
+      if (this.quality === "high" && particle.radius > 3.2 && index % 4 === 0) layer.sprite({ x: particle.x + ox, y: particle.y + oy, width: particle.radius * 6, color: particle.color, opacity: life * 0.34, texture: "spark", z: 11 });
+      layer.circle({ x: particle.x + ox, y: particle.y + oy, radius: particle.radius * (0.7 + life * 0.3), color: particle.color, opacity: life, z: 12 });
+    });
     combat.entities.floatingTexts.forEach((item) => layer.text(item.text, { x: item.x - 40 + ox, y: item.y - 12 + oy, width: 80, height: 24, color: item.color, fontSize: 10, align: "center", weight: 900, z: 13 }));
   }
 
@@ -1093,13 +1207,36 @@ export class GameRenderer {
       layer.text(combat.notice.text, { x: x + 10, y: y + 29, width: width - 20, height: 20, color: COLORS.ink, fontSize: 9, align: "center", weight: 800, z: 29 });
     }
     if (!combat.transformed && combat.transformCores >= 3) {
-      const width = Math.min(this.width - 28, 360);
-      layer.rect({ x: (this.width - width) / 2, y: this.height * 0.66, width, height: 58, color: "#8d3e24", opacity: 0.96, border: COLORS.gold, z: 27 });
-      layer.text("能量已满，点击右侧“变身”", { x: (this.width - width) / 2 + 8, y: this.height * 0.66 + 9, width: width - 16, height: 38, color: "#ffffff", fontSize: 15, align: "center", weight: 900, z: 28 });
+      const width = Math.min(this.width - 60, 250);
+      const y = this.height * 0.69;
+      layer.rect({ x: (this.width - width) / 2, y, width, height: 38, color: "#8d3e24", opacity: 0.9, border: COLORS.gold, z: 27 });
+      layer.text("CORE READY // 点击右侧变身", { x: (this.width - width) / 2 + 8, y: y + 6, width: width - 16, height: 26, color: "#ffffff", fontSize: 10, align: "center", weight: 900, z: 28 });
     }
     if (combat.nuclear) {
       layer.circle({ x: combat.nuclear.x, y: combat.nuclear.y, radius: 38 + Math.sin(this.time * 14) * 8, color: "#efb632", opacity: 0.16, border: "#d53d35", z: 26 });
       layer.text(`核裁决 ${combat.nuclear.timer.toFixed(1)}`, { x: 0, y: this.height * 0.42, width: this.width, height: 42, color: COLORS.red, fontSize: 20, align: "center", weight: 900, z: 28 });
+    }
+  }
+
+  drawThreatOverlay(layer, state, combat, fighter) {
+    const reduced = state.settings.effects === "reduced" || state.settings.reducedMotion;
+    const hostileCount = combat.entities.enemyProjectiles.length;
+    const healthRatio = clamp(combat.player.health / combat.player.maxHealth, 0, 1);
+    const critical = healthRatio <= 0.28;
+    const bossDanger = combat.boss?.phase === 3 || Boolean(combat.boss?.telegraph);
+    if (!critical && !bossDanger && hostileCount < 12) return;
+    const danger = critical || bossDanger ? COLORS.red : COLORS.gold;
+    const pulse = reduced ? 0.62 : 0.55 + (Math.sin(this.time * (critical ? 9 : 6)) + 1) * 0.16;
+    const length = Math.min(62, this.width * 0.16);
+    for (const side of [-1, 1]) {
+      const x = side < 0 ? 7 : this.width - 7;
+      layer.line({ x1: x, y1: 112, x2: x, y2: this.height - 112, width: critical ? 4 : 2, color: danger, opacity: pulse * 0.55, z: 33 });
+      layer.line({ x1: side < 0 ? 8 : this.width - 8, y1: 116, x2: side < 0 ? 8 + length : this.width - 8 - length, y2: 116, width: 2, color: danger, opacity: pulse, z: 33 });
+    }
+    const label = bossDanger ? (combat.boss?.telegraph ? "MISSILE LOCK // 规避" : "CORE OVERDRIVE // 核心暴走") : critical ? "HULL CRITICAL // 机体危险" : `THREAT ${hostileCount} // 高密弹幕`;
+    layer.text(label, { x: 26, y: 122, width: this.width - 52, height: 18, color: danger, fontSize: 8, align: "center", weight: 900, z: 34 });
+    if (combat.combo >= 10) {
+      layer.text(`ACE CHAIN ×${combat.combo}`, { x: this.width * 0.5 - 80, y: this.height * 0.2, width: 160, height: 28, color: fighter.secondary, fontSize: 13, align: "center", weight: 900, z: 32 });
     }
   }
 

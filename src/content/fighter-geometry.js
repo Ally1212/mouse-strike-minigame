@@ -1,13 +1,13 @@
 export const AIRFRAME_SPECS = {
-  commander: { body: [18, 150], wing: [68, 58, 0.7], canard: 24, tails: 2, engines: 2, bodyColor: 0x6d8797, underside: 0x183342 },
-  falcon: { body: [17, 132], wing: [54, 50, 0.58], canard: 8, tails: 2, engines: 2, bodyColor: 0x607b89, underside: 0x16313d },
-  specter: { body: [22, 142], wing: [78, 66, 0.9], canard: 0, tails: 0, engines: 2, bodyColor: 0x758ca5, underside: 0x1d3244 },
-  hunter: { body: [20, 140], wing: [58, 54, 0.62], canard: 0, tails: 2, engines: 2, bodyColor: 0x748590, underside: 0x1d3039 },
-  lancer: { body: [18, 136], wing: [58, 58, 0.72], canard: 27, tails: 1, engines: 2, bodyColor: 0x667f8d, underside: 0x172f3a },
-  dualist: { body: [19, 133], wing: [55, 55, 0.68], canard: 20, tails: 1, engines: 2, bodyColor: 0x647d88, underside: 0x20323b },
-  skirmisher: { body: [15, 122], wing: [48, 46, 0.48], canard: 18, tails: 1, engines: 1, bodyColor: 0x607d86, underside: 0x17323b },
-  siege: { body: [25, 145], wing: [72, 62, 0.78], canard: 0, tails: 2, engines: 2, bodyColor: 0x7a8c98, underside: 0x293943 },
-  hypersonic: { body: [21, 156], wing: [82, 70, 0.92], canard: 28, tails: 2, engines: 3, bodyColor: 0x477992, underside: 0x102f41 },
+  commander: { body: [18, 150], wing: [68, 58, 0.7], canard: 24, tails: 2, engines: 2, bodyColor: 0x6d8797, underside: 0x183342, signature: "dragon-spine", railCount: 3 },
+  falcon: { body: [17, 132], wing: [54, 50, 0.58], canard: 8, tails: 2, engines: 2, bodyColor: 0x607b89, underside: 0x16313d, signature: "carrier-shield", railCount: 2 },
+  specter: { body: [22, 142], wing: [78, 66, 0.9], canard: 0, tails: 0, engines: 2, bodyColor: 0x758ca5, underside: 0x1d3244, signature: "manta-node", railCount: 4 },
+  hunter: { body: [20, 140], wing: [58, 54, 0.62], canard: 0, tails: 2, engines: 2, bodyColor: 0x748590, underside: 0x1d3039, signature: "raptor-claw", railCount: 2 },
+  lancer: { body: [18, 136], wing: [58, 58, 0.72], canard: 27, tails: 1, engines: 2, bodyColor: 0x667f8d, underside: 0x172f3a, signature: "storm-lance", railCount: 1 },
+  dualist: { body: [19, 133], wing: [55, 55, 0.68], canard: 20, tails: 1, engines: 2, bodyColor: 0x647d88, underside: 0x20323b, signature: "twin-blade", railCount: 2 },
+  skirmisher: { body: [15, 122], wing: [48, 46, 0.48], canard: 18, tails: 1, engines: 1, bodyColor: 0x607d86, underside: 0x17323b, signature: "vector-rail", railCount: 1 },
+  siege: { body: [25, 145], wing: [72, 62, 0.78], canard: 0, tails: 2, engines: 2, bodyColor: 0x7a8c98, underside: 0x293943, signature: "bastion-grid", railCount: 4 },
+  hypersonic: { body: [21, 156], wing: [82, 70, 0.92], canard: 28, tails: 2, engines: 3, bodyColor: 0x477992, underside: 0x102f41, signature: "trident-core", railCount: 3 },
 };
 
 export function fighterCombatScale(transformed = false) {
@@ -111,6 +111,16 @@ export function fighterSilhouetteGeometry(fighter, x, y, scale = 1) {
     { x1: x - halfBody * 0.65, y1: y + halfLength * 0.24, x2: x - span * 0.42, y2: wingRearY - 1 * scale },
     { x1: x + halfBody * 0.65, y1: y + halfLength * 0.24, x2: x + span * 0.42, y2: wingRearY - 1 * scale },
   ];
+  const energyRails = Array.from({ length: spec.railCount || 2 }, (_, index) => {
+    const centered = index - ((spec.railCount || 2) - 1) / 2;
+    const lane = centered * Math.max(2.2, halfBody * 0.42);
+    return {
+      x1: x + lane * 0.42,
+      y1: y - halfLength * (profile === "commander" ? 0.72 : 0.5),
+      x2: x + lane,
+      y2: y + halfLength * (profile === "hypersonic" ? 0.48 : 0.28),
+    };
+  });
   return {
     profile,
     outline,
@@ -122,6 +132,8 @@ export function fighterSilhouetteGeometry(fighter, x, y, scale = 1) {
     intakes,
     weaponBays,
     panelLines,
+    energyRails,
+    signature: spec.signature,
     palette: {
       body: `#${spec.bodyColor.toString(16).padStart(6, "0")}`,
       underside: `#${spec.underside.toString(16).padStart(6, "0")}`,

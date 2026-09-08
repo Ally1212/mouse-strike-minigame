@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { FIGHTER_ORDER, FIGHTERS, WINGMAN_SPECS, getToolModes } from "../src/content/fighter-profiles.js";
 import { BATTLE_MAPS, MAP_ORDER, createMapStructures } from "../src/content/battle-maps.js";
-import { BATTLE_VISUALS, environmentDensity } from "../src/content/battle-visuals.js";
+import { BATTLE_VISUALS, combatIntensity, environmentDensity, visualQuality } from "../src/content/battle-visuals.js";
 import { TRANSFORM_CORE_COST, TRANSFORM_DURATION, battleCadence, canEnterCoreTransform } from "../src/content/gameplay-rules.js";
 
 describe("migrated content contract", () => {
@@ -55,6 +55,13 @@ describe("migrated content contract", () => {
 
   test("cycles through readable combat cadence phases", () => {
     expect([0, 6, 18, 29, 34].map((time) => battleCadence(time).id)).toEqual(["establish", "assault", "pressure", "respite", "climax"]);
+  });
+
+  test("scales spectacle without changing gameplay state", () => {
+    expect(visualQuality("low").particles).toBeLessThan(visualQuality("medium").particles);
+    expect(visualQuality("medium").particles).toBeLessThan(visualQuality("high").particles);
+    expect(combatIntensity({ elapsed: 4 })).toBeLessThan(combatIntensity({ elapsed: 30 }));
+    expect(combatIntensity({ boss: { phase: 3 } })).toBe(1);
   });
 
 });
